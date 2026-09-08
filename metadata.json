@@ -1,0 +1,6 @@
+{
+  "name": "Securely Message",
+  "description": "A Zero-Knowledge End-to-End Encrypted Web Messenger using the Web Crypto API, Socket.io, and a blind post-office MongoDB queuing system.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
