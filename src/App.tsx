@@ -642,10 +642,24 @@ export default function App() {
   }
 
   
-  const handleSaveContact = (userId: string, name: string) => {
+  const handleSaveContact = async (userId: string, name: string) => {
+    // Optimistic update
     setConversations((prev) => 
       prev.map(c => c.id === userId ? { ...c, displayName: name } : c)
     );
+    
+    // Fetch the user's full profile now that they are a saved contact
+    try {
+      const res = await fetch(`/api/v1/users/${userId}`);
+      if (res.ok) {
+        const user = await res.json();
+        setConversations((prev) => 
+          prev.map(c => c.id === userId ? { ...c, photoUrl: user.photoUrl, about: user.about } : c)
+        );
+      }
+    } catch (err) {
+      console.error("Failed to fetch contact details", err);
+    }
   };
 
   return (

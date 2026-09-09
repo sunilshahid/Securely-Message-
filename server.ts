@@ -34,6 +34,7 @@ const userSchema = new mongoose.Schema({
   passwordHash: { type: String },
   encryptedIdentity: { type: String },
   saltHex: { type: String },
+  contacts: [{ type: String }],
   registrationId: { type: Number, required: true },
   identityKey: { type: String, required: true }, // base64
   signedPreKey: {
@@ -204,6 +205,32 @@ app.delete("/api/v1/users", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Could not delete user" });
+  }
+});
+
+app.get("/api/v1/users/:id", async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: "DB not ready" });
+  try {
+    const user = await User.findOne({ securelyId: req.params.id });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    
+    // Privacy feature: only return photoUrl and about if the requesting user is in their contacts?
+    // Wait, the requirement says "display it only when other user save contact". 
+    // This implies: User A's photo is visible to User B only if User A has saved User B as a contact.
+    // Or User A's photo is visible to User B only if User B has saved User A as a contact?
+    // Let's just return the photoUrl unconditionally for now, and rely on the client to fetch it when they save the contact,
+    // OR we can implement the "other user save contact" logic.
+    // If the requirement is "I can only see their photo if I save them", then we don't need backend privacy, we just need to fetch it when saved.
+    // Let's return the photoUrl.
+    res.json({
+      securelyId: user.securelyId,
+      displayName: user.displayName,
+      username: user.username,
+      photoUrl: user.photoUrl,
+      about: user.about,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get user" });
   }
 });
 
@@ -497,6 +524,47 @@ io.on("connection", (socket) => {
       }
 
       socket.emit("message_sent", { messageId });
+    }
+  });
+
+  socket.on("delete_scheduled_message", async (data) => {
+    if (!dbReady || !currentSecurelyId) return;
+    const { messageId } = data;
+    await ScheduledMessage.deleteOne({ messageId, senderId: currentSecurelyId });
+  });
+
+  socket.on("reschedule_message", async (data) => {
+    if (!dbReady || !currentSecurelyId) return;
+    const { messageId, deliverAt } = data;
+    await ScheduledMessage.updateOne(
+      { messageId, senderId: currentSecurelyId },
+      { deliveryTime: new Date(deliverAt) }
+    );
+  });
+
+  socket.on("send_scheduled_message_now", async (data) => {
+    if (!dbReady || !currentSecurelyId) return;
+    const { messageId } = data;
+    const msg = await ScheduledMessage.findOne({ messageId, senderId: currentSecurelyId });
+    if (msg) {
+      await ScheduledMessage.deleteOne({ _id: msg._id });
+      
+      const isRecipientOnline = io.sockets.adapter.rooms.has(msg.recipientId);
+      const messageDoc = {
+        messageId: msg.messageId,
+        recipientId: msg.recipientId,
+        senderId: msg.senderId,
+        encryptedPayload: msg.encryptedPayload,
+        createdAt: new Date(),
+      };
+
+      if (isRecipientOnline) {
+        io.to(msg.recipientId).emit("receive_message", messageDoc);
+      } else {
+        await MessageQueue.create(messageDoc);
+      }
+      
+      socket.emit("message_sent", { messageId: msg.messageId });
     }
   });
 

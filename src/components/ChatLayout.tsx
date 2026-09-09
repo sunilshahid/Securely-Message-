@@ -1,3 +1,111 @@
+
+function CustomDateTimePicker({ onSelect, onClose }: { onSelect: (d: Date) => void, onClose: () => void }) {
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [hour, setHour] = useState(() => {
+    let h = new Date().getHours() + 1;
+    if (h > 12) h -= 12;
+    if (h === 0) h = 12;
+    return h.toString().padStart(2, '0');
+  });
+  const [minute, setMinute] = useState("00");
+  const [ampm, setAmpm] = useState(() => {
+    return (new Date().getHours() + 1) >= 12 ? "PM" : "AM";
+  });
+
+  const dates = Array.from({length: 30}).map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+
+  const hours = Array.from({length: 12}).map((_, i) => (i === 0 ? 12 : i).toString().padStart(2, '0'));
+  const minutes = ["00", "05", "10", "15", "20", "30", "40", "45", "50", "55"];
+
+  const handleSchedule = () => {
+    const d = new Date(selectedDate);
+    let h = parseInt(hour, 10);
+    if (ampm === "PM" && h !== 12) h += 12;
+    if (ampm === "AM" && h === 12) h = 0;
+    d.setHours(h);
+    d.setMinutes(parseInt(minute, 10));
+    d.setSeconds(0);
+    d.setMilliseconds(0);
+    onSelect(d);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/60 flex flex-col justify-end md:justify-center items-center p-0 md:p-4" onClick={onClose}>
+      <div className="bg-neutral-900 w-full md:w-[400px] rounded-t-3xl md:rounded-3xl flex flex-col overflow-hidden border border-neutral-800 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center p-4 border-b border-neutral-800">
+          <h3 className="text-lg font-medium text-neutral-100">Schedule Message</h3>
+          <button onClick={onClose} className="p-2 text-neutral-400 hover:text-white rounded-full transition-colors"><X className="w-5 h-5"/></button>
+        </div>
+        <div className="p-6 flex flex-col gap-8">
+          <div>
+            <label className="text-sm font-medium text-neutral-400 mb-3 block">Date</label>
+            <div className="flex gap-2 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] snap-x">
+              {dates.map((d, i) => {
+                const isSelected = selectedDate.toDateString() === d.toDateString();
+                const isToday = i === 0;
+                const isTomorrow = i === 1;
+                let label = d.toLocaleDateString('en-US', { weekday: 'short' });
+                if (isToday) label = "Today";
+                if (isTomorrow) label = "Tomorrow";
+                
+                return (
+                  <button 
+                    key={i} 
+                    onClick={() => setSelectedDate(d)}
+                    className={`snap-start shrink-0 flex flex-col items-center justify-center w-[72px] h-[72px] rounded-2xl border transition-all ${isSelected ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-neutral-800 border-neutral-700 text-neutral-300 hover:bg-neutral-700'}`}
+                  >
+                    <span className="text-[11px] font-medium uppercase tracking-wider opacity-80 mb-1">{label}</span>
+                    <span className="text-xl font-medium">{d.getDate()}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          
+          <div>
+            <label className="text-sm font-medium text-neutral-400 mb-3 block">Time</label>
+            <div className="flex items-center gap-4 justify-center">
+              <div className="flex-1 bg-neutral-800 border border-neutral-700 rounded-2xl overflow-hidden h-[150px] relative">
+                 <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-10 bg-white/5 pointer-events-none border-y border-white/10" />
+                 <div className="overflow-y-auto h-full snap-y snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] py-[55px]">
+                    {hours.map(h => (
+                      <button key={h} onClick={() => setHour(h)} className={`w-full h-10 snap-center flex items-center justify-center text-xl font-medium transition-colors ${hour === h ? 'text-indigo-400' : 'text-neutral-500 hover:text-neutral-300'}`}>
+                        {h}
+                      </button>
+                    ))}
+                 </div>
+              </div>
+              <span className="text-xl font-medium text-neutral-500">:</span>
+              <div className="flex-1 bg-neutral-800 border border-neutral-700 rounded-2xl overflow-hidden h-[150px] relative">
+                 <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-10 bg-white/5 pointer-events-none border-y border-white/10" />
+                 <div className="overflow-y-auto h-full snap-y snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] py-[55px]">
+                    {minutes.map(m => (
+                      <button key={m} onClick={() => setMinute(m)} className={`w-full h-10 snap-center flex items-center justify-center text-xl font-medium transition-colors ${minute === m ? 'text-indigo-400' : 'text-neutral-500 hover:text-neutral-300'}`}>
+                        {m}
+                      </button>
+                    ))}
+                 </div>
+              </div>
+              <div className="flex flex-col gap-2 w-16">
+                 <button onClick={() => setAmpm("AM")} className={`flex-1 rounded-xl font-medium text-sm transition-all h-12 ${ampm === "AM" ? 'bg-indigo-600 text-white' : 'bg-neutral-800 text-neutral-400 border border-neutral-700 hover:bg-neutral-700'}`}>AM</button>
+                 <button onClick={() => setAmpm("PM")} className={`flex-1 rounded-xl font-medium text-sm transition-all h-12 ${ampm === "PM" ? 'bg-indigo-600 text-white' : 'bg-neutral-800 text-neutral-400 border border-neutral-700 hover:bg-neutral-700'}`}>PM</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="p-4 border-t border-neutral-800 flex justify-end gap-3">
+          <button onClick={onClose} className="px-6 py-3 font-medium text-neutral-300 hover:text-white transition-colors">Cancel</button>
+          <button onClick={handleSchedule} className="px-8 py-3 bg-indigo-600 text-white font-medium rounded-full shadow-lg hover:bg-indigo-500 active:scale-95 transition-all">Schedule</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCode from "react-qr-code";
@@ -312,6 +420,7 @@ export default function ChatLayout({
   const [showAdd, setShowAdd] = useState(false);
   const [text, setText] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [rescheduleMsgId, setRescheduleMsgId] = useState<string | null>(null);
   const [scheduleTime, setScheduleTime] = useState("");
   const [showQrModal, setShowQrModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -530,15 +639,19 @@ export default function ChatLayout({
       else if (payload.type === "answer") {
         if (peerConnectionRef.current) {
           await peerConnectionRef.current.setRemoteDescription(payload.answer);
+          if (window.__pendingCandidates) {
+             window.__pendingCandidates.forEach((c) => peerConnectionRef.current.addIceCandidate(c).catch(console.error));
+             window.__pendingCandidates = [];
+          }
         }
       }
       else if (payload.type === "candidate") {
-        if (peerConnectionRef.current) {
+        if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
           try {
             await peerConnectionRef.current.addIceCandidate(payload.candidate);
           } catch(e) { console.error(e); }
         } else {
-           // Queue candidate if pc isn't ready
+           // Queue candidate if pc isn't ready or remoteDescription is missing
            if (!window.__pendingCandidates) window.__pendingCandidates = [];
            window.__pendingCandidates.push(payload.candidate);
         }
@@ -686,6 +799,7 @@ export default function ChatLayout({
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
+      mediaRecorder.start();
       mediaRecorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
         
@@ -770,10 +884,12 @@ export default function ChatLayout({
     }
   };
 
-  const handleSend = () => {
+  const handleSend = (overrideScheduleTime?: Date) => {
     if (!text.trim() && !attachment) return;
     let sTime: Date | undefined;
-    if (scheduleOpen && scheduleTime) {
+    if (overrideScheduleTime) {
+      sTime = overrideScheduleTime;
+    } else if (scheduleOpen && scheduleTime) {
       sTime = new Date(scheduleTime);
     }
     let expireValue =
@@ -1694,7 +1810,54 @@ export default function ChatLayout({
       {/* Sidebar */}
       <div
         className={`w-full md:w-80 lg:w-96 shrink-0 bg-neutral-900 border-r border-neutral-800 flex flex-col relative ${activeConvId ? "hidden md:flex" : "flex"}`}
-      >
+      >      {/* Global Chat Menu */}
+      <AnimatePresence>
+        {showChatMenu && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40"
+              onClick={() => setShowChatMenu(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+              className="absolute right-4 top-16 w-56 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-xl z-50 overflow-hidden py-2"
+            >
+              <button 
+                onClick={() => { setShowChatMenu(false); setShowNewGroup(true); }}
+                className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
+              >
+                <Users className="w-5 h-5 text-neutral-400" /> New group
+              </button>
+              <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
+                <CheckSquare className="w-5 h-5 text-neutral-400" /> Mark all read
+              </button>
+              <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
+                <Filter className="w-5 h-5 text-neutral-400" /> Filter unread chats
+              </button>
+              <button 
+                onClick={() => { setShowChatMenu(false); setShowNotificationProfile(true); }}
+                className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
+              >
+                <Bell className="w-5 h-5 text-neutral-400" /> Notification profile
+              </button>
+              <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
+                <Archive className="w-5 h-5 text-neutral-400" /> Archived chats
+              </button>
+              <button 
+                onClick={() => { setShowChatMenu(false); setShowSettings(true); }}
+                className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
+              >
+                <Settings className="w-5 h-5 text-neutral-400" /> Settings
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
         {activeTab === "chats" && (<div className="p-4 flex items-center justify-between border-b border-neutral-800 h-[73px]">
           <AnimatePresence mode="wait">
             {!isSearchActive ? (
@@ -1718,67 +1881,21 @@ export default function ChatLayout({
                     />
                   </button>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-4 shrink-0 text-neutral-400">
                   <button
                     onClick={() => setIsSearchActive(true)}
-                    className="p-2 text-neutral-400 hover:text-neutral-200 transition-colors"
+                    className="cursor-pointer hover:text-white transition-colors"
                   >
                     <Search className="w-6 h-6" />
                   </button>
-                  <div className="relative">
+                  <div className="relative flex items-center">
                     <button
                       onClick={() => setShowChatMenu(!showChatMenu)}
-                      className="p-2 text-neutral-400 hover:text-neutral-200 transition-colors"
+                      className="cursor-pointer hover:text-white transition-colors"
                     >
                       <MoreVertical className="w-6 h-6" />
                     </button>
-                    <AnimatePresence>
-                      {showChatMenu && (
-                        <>
-                          <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowChatMenu(false)}
-                          />
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                            className="absolute right-0 top-12 w-56 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-xl z-50 overflow-hidden py-2"
-                          >
-                            <button 
-                              onClick={() => { setShowChatMenu(false); setShowNewGroup(true); }}
-                              className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
-                            >
-                              <Users className="w-5 h-5 text-neutral-400" /> New group
-                            </button>
-                            <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
-                              <CheckSquare className="w-5 h-5 text-neutral-400" /> Mark all read
-                            </button>
-                            <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
-                              <Filter className="w-5 h-5 text-neutral-400" /> Filter unread chats
-                            </button>
-                            <button 
-                              onClick={() => { setShowChatMenu(false); setShowNotificationProfile(true); }}
-                              className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
-                            >
-                              <Bell className="w-5 h-5 text-neutral-400" /> Notification profile
-                            </button>
-                            <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
-                              <Archive className="w-5 h-5 text-neutral-400" /> Archived chats
-                            </button>
-                            <button 
-                              onClick={() => { setShowChatMenu(false); setShowSettings(true); }}
-                              className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
-                            >
-                              <Settings className="w-5 h-5 text-neutral-400" /> Settings
-                            </button>
-                          </motion.div>
-                        </>
-                      )}
-                    </AnimatePresence>
+
                   </div>
                 </div>
               </motion.div>
@@ -1988,7 +2105,8 @@ export default function ChatLayout({
                     onSelectConv(userId);
                     // Slight delay to allow state to settle
                     setTimeout(() => startCallDialog(isVideo), 50);
-                 }} 
+                 }}
+                 onMenuClick={() => setShowChatMenu(!showChatMenu)}
               />
             </div>
           ) : (
@@ -2347,27 +2465,43 @@ export default function ChatLayout({
                 </p>
               </div>
               {!isNoteToSelf && (!activeConv?.displayName || activeConv.displayName === 'Unknown') && (
-                <div className="flex flex-col items-center justify-center mb-8 px-4">
-                  <div className="bg-neutral-800/50 p-4 rounded-2xl w-full max-w-sm border border-neutral-700 flex flex-col gap-3">
-                    <p className="text-sm text-neutral-300 text-center">This contact is not in your address book.</p>
-                    <div className="flex gap-2">
+                <div className="flex flex-col items-center justify-center mb-10 px-4 mt-4 w-full">
+                  <div className="bg-neutral-900 shadow-lg p-5 rounded-3xl w-full max-w-md border border-neutral-800 flex flex-col items-center gap-4">
+                    <div className="w-14 h-14 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mb-1">
+                       <UserPlus className="w-7 h-7" />
+                    </div>
+                    <div className="text-center space-y-1">
+                      <h3 className="text-lg font-medium text-neutral-100">Unknown Sender</h3>
+                      <p className="text-[13px] text-neutral-400 max-w-[250px] mx-auto">
+                        This contact is not in your address book. Save them to see their profile photo and details.
+                      </p>
+                    </div>
+                    <div className="flex gap-2 w-full mt-2">
                        <input 
                          type="text" 
                          value={contactNameInput}
                          onChange={(e) => setContactNameInput(e.target.value)}
                          placeholder="Enter contact name..."
-                         className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm outline-none text-neutral-200 focus:border-indigo-500 transition-colors"
+                         className="flex-1 bg-neutral-800 border border-neutral-700 rounded-2xl px-4 py-3 text-sm outline-none text-neutral-200 focus:border-indigo-500 transition-colors"
                        />
+                    </div>
+                    <div className="flex gap-3 w-full">
                        <button 
+                         className="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-2xl text-[15px] font-medium transition-colors"
+                       >
+                         Block
+                       </button>
+                       <button 
+                         disabled={!contactNameInput.trim()}
                          onClick={() => {
                             if (contactNameInput.trim() && onSaveContact && activeConv) {
                                onSaveContact(activeConv.id, contactNameInput.trim());
                                setContactNameInput("");
                             }
                          }}
-                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white text-sm font-medium transition-colors"
+                         className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600 rounded-2xl text-white text-[15px] font-medium transition-colors"
                        >
-                         Save
+                         Save Contact
                        </button>
                     </div>
                   </div>
@@ -2607,37 +2741,10 @@ export default function ChatLayout({
             {/* Input */}
             <div className="px-2 md:px-4 py-2 md:py-3 bg-neutral-900 relative z-20">
               {scheduleOpen && (
-                <div className="absolute bottom-[calc(100%+8px)] right-4 bg-neutral-900 p-4 rounded-2xl border border-neutral-800 shadow-2xl mb-0 w-72 flex flex-col gap-3 z-50 origin-bottom-right">
-                  <span className="text-sm text-neutral-100 font-medium px-1">Schedule Message</span>
-                  <div className="flex flex-col gap-2">
-                    <input
-                      type="datetime-local"
-                      value={scheduleTime}
-                      onChange={(e) => setScheduleTime(e.target.value)}
-                      className="bg-neutral-800 text-neutral-200 text-sm p-2.5 rounded-xl border border-neutral-700 focus:outline-none focus:border-indigo-500 w-full"
-                      style={{ colorScheme: 'dark' }}
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2 mt-1">
-                    <button
-                      onClick={() => setScheduleOpen(false)}
-                      className="px-3 py-2 text-sm font-medium text-neutral-400 hover:text-neutral-200 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (scheduleTime) {
-                          handleSend();
-                        }
-                      }}
-                      className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 disabled:opacity-50"
-                      disabled={!scheduleTime || (!text.trim() && !attachment)}
-                    >
-                      Schedule
-                    </button>
-                  </div>
-                </div>
+                <CustomDateTimePicker 
+                  onSelect={(d) => { setScheduleOpen(false); handleSend(d); }} 
+                  onClose={() => setScheduleOpen(false)} 
+                />
               )}
 
               {attachment && !isRecording && (
@@ -2806,6 +2913,24 @@ export default function ChatLayout({
         )}
       </div>
 
+      {/* Reschedule Picker Modal */}
+      {rescheduleMsgId && (
+        <CustomDateTimePicker 
+          onSelect={(d) => {
+            socket.emit("reschedule_message", { messageId: rescheduleMsgId, deliverAt: d.toISOString() });
+            onUpdateConversation(activeConvId!, {
+              messages: activeConv!.messages.map(m =>
+                m.id === rescheduleMsgId
+                  ? { ...m, scheduledTime: d }
+                  : m
+              )
+            });
+            setRescheduleMsgId(null);
+          }} 
+          onClose={() => setRescheduleMsgId(null)} 
+        />
+      )}
+      
       {/* Scheduled Messages Modal */}
       <AnimatePresence>
         {showScheduledModal && (
@@ -2837,7 +2962,7 @@ export default function ChatLayout({
                 </div>
               </div>
               
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-neutral-950 relative">
+              <div className="flex-1 overflow-y-auto p-4 pb-48 space-y-4 bg-neutral-950 relative">
                 {scheduledMessages.map((msg) => (
                   <div key={msg.id} className="flex flex-col items-end w-full relative">
                     <div className="flex items-center gap-2 max-w-[85%] relative">
@@ -2858,25 +2983,25 @@ export default function ChatLayout({
                                animate={{ opacity: 1, scale: 1 }}
                                exit={{ opacity: 0, scale: 0.95 }}
                                transition={{ duration: 0.1 }}
-                               className="absolute right-0 bottom-full mb-2 w-48 bg-neutral-100 dark:bg-neutral-800 rounded-2xl shadow-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden z-[100]"
+                               className="absolute right-0 top-full mt-2 w-48 bg-neutral-100 dark:bg-neutral-800 rounded-2xl shadow-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden z-[100]"
                              >
-                                <button className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
+                                <button onClick={(e) => { e.stopPropagation(); setRescheduleMsgId(msg.id); setOpenScheduleMenuId(null); }} className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
                                    <Calendar className="w-4 h-4" /> Reschedule
                                 </button>
-                                <button className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
+                                <button onClick={(e) => { e.stopPropagation(); socket.emit("send_scheduled_message_now", { messageId: msg.id }); onUpdateConversation(activeConvId!, { messages: activeConv!.messages.map(m => m.id === msg.id ? { ...m, status: "sending", timestamp: new Date(), scheduledTime: undefined } : m) }); setOpenScheduleMenuId(null); }} className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
                                    <Send className="w-4 h-4" /> Send now
                                 </button>
-                                <button className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
+                                <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(msg.decryptedText || ""); setOpenScheduleMenuId(null); }} className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
                                    <Copy className="w-4 h-4" /> Copy
                                 </button>
-                                <button className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-red-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
+                                <button onClick={(e) => { e.stopPropagation(); socket.emit("delete_scheduled_message", { messageId: msg.id }); onUpdateConversation(activeConvId!, { messages: activeConv!.messages.filter(m => m.id !== msg.id) }); setOpenScheduleMenuId(null); }} className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-red-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
                                    <Trash2 className="w-4 h-4" /> Delete
                                 </button>
                              </motion.div>
                           )}
                         </AnimatePresence>
                       </div>
-                      <div className="rounded-2xl px-3 py-1.5 bg-pink-600 text-white rounded-tr-sm relative group shadow-sm">
+                      <div className="rounded-2xl px-3 py-1.5 bg-blue-600 text-white rounded-tr-sm relative group shadow-sm">
                         <div className="whitespace-pre-wrap break-words min-w-0 text-[15px] leading-snug">
                           {msg.decryptedText}
                         </div>

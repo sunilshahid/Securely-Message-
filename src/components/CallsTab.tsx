@@ -18,6 +18,7 @@ import {
   X
 ,   PhoneIncoming,   PhoneOutgoing,   PhoneMissed,   PhoneOff} from "lucide-react";
 import { Conversation } from "../types";
+import { motion, AnimatePresence } from "framer-motion";
 import { DecryptedAvatar } from "./DecryptedAvatar";
 
 type ViewState = "main" | "new" | "schedule" | "link" | "keypad";
@@ -26,10 +27,12 @@ export function CallsTab({
   conversations,
   onStartCall,
   onClose,
+  onMenuClick,
 }: {
   conversations: Conversation[];
   onStartCall: (userId: string, isVideo: boolean) => void;
   onClose?: () => void;
+  onMenuClick?: () => void;
 }) {
   const [view, setView] = useState<ViewState>("main");
   const [searchActive, setSearchActive] = useState(false);
@@ -69,7 +72,7 @@ export function CallsTab({
             <h1 className="text-2xl font-semibold">Calls</h1>
             <div className="flex items-center gap-4 text-neutral-400">
               <Search className="w-6 h-6 cursor-pointer hover:text-white transition-colors" onClick={() => setSearchActive(true)} />
-              <MoreVertical className="w-6 h-6 cursor-pointer hover:text-white transition-colors" />
+              <MoreVertical className="w-6 h-6 cursor-pointer hover:text-white transition-colors" onClick={onMenuClick} />
             </div>
           </div>
         )}
@@ -135,12 +138,17 @@ export function CallsTab({
         </div>
 
         {/* FAB */}
-        <button 
-          onClick={() => setView("new")}
-          className="absolute bottom-4 right-6 w-14 h-14 bg-indigo-500 text-white rounded-2xl flex items-center justify-center shadow-lg hover:bg-indigo-400 transition-colors z-30"
-        >
-          <Phone className="w-6 h-6 fill-current" />
-        </button>
+        <AnimatePresence>
+          <motion.button 
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            onClick={() => setView("new")}
+            className="absolute bottom-4 right-6 w-14 h-14 bg-indigo-500 text-white rounded-2xl flex items-center justify-center shadow-lg hover:bg-indigo-400 transition-colors z-30"
+          >
+            <Phone className="w-6 h-6 fill-current" />
+          </motion.button>
+        </AnimatePresence>
       </div>
     );
   }
