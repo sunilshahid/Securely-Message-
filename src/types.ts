@@ -27,16 +27,12 @@ export type ChatMessage = {
   viewOnceViewed?: boolean;
   scheduledTime?: Date;
   status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'scheduled';
-  replyToId?: string;
-  replyTo?: {
-    text: string;
-    senderName: string;
-    isSelf: boolean;
-  };
 };
+
 
 export type EnvelopePayload = {
   text: string;
+  replyToId?: string;
   expireIn?: number;
   isViewOnce?: boolean;
   attachmentId?: string;

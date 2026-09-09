@@ -98,6 +98,8 @@ export function CallScreen({
     }
   }, [localStream, isVideoOff]);
 
+  const showVideo = isVideo && callState === "connected" && !isVideoOff;
+
   useEffect(() => {
     const applySinkId = async (element: HTMLMediaElement) => {
       try {
@@ -129,7 +131,6 @@ export function CallScreen({
     }
   }, [remoteStream, callState, showVideo, isSpeakerOn]);
 
-  const showVideo = isVideo && callState === "connected" && !isVideoOff;
 
   return (
     <div className="fixed inset-0 z-[100] bg-neutral-950 flex flex-col items-center justify-between text-white overflow-hidden">

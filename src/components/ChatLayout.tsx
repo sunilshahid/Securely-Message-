@@ -459,8 +459,8 @@ export default function ChatLayout({
   onSelectConv,
   onSendMessage,
   onViewOnceOpened,
-  onSaveContact,
   onAddContact,
+  onSaveContact,
   onUpdateProfile,
   onUpdateConversation,
   onLogout,
@@ -627,11 +627,12 @@ export default function ChatLayout({
     return pc;
   };
 
-  const startCallDialog = async (isVideoCall: boolean) => {
-    if (!activeConvId) return;
+  const startCallDialog = async (isVideoCall: boolean, targetId?: string) => {
+    const idToCall = targetId || activeConvId;
+    if (!idToCall) return;
     setCallIsVideo(isVideoCall);
     setIsIncomingCall(false);
-    setCallingUserId(activeConvId);
+    setCallingUserId(idToCall);
     setCallState("calling");
     
     const stream = await initLocalStream(isVideoCall);
@@ -640,14 +641,14 @@ export default function ChatLayout({
       return;
     }
 
-    const pc = createPeerConnection(activeConvId, stream);
+    const pc = createPeerConnection(idToCall, stream);
     
     try {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       
       socket?.emit("call_signaling", {
-        recipientId: activeConvId,
+        recipientId: idToCall,
         payload: { type: "offer", offer, isVideo: isVideoCall },
       });
     } catch (e) {
@@ -2153,7 +2154,7 @@ export default function ChatLayout({
                  onStartCall={(userId, isVideo) => {
                     onSelectConv(userId);
                     // Slight delay to allow state to settle
-                    setTimeout(() => startCallDialog(isVideo), 50);
+                    setTimeout(() => startCallDialog(isVideo, userId), 50);
                  }}
                  onMenuClick={() => setShowChatMenu(!showChatMenu)}
               />
@@ -2246,13 +2247,13 @@ export default function ChatLayout({
                 {activeConv?.id !== myId && (
                   <>
                     <button
-                      onClick={() => startCallDialog(false)}
+                      onClick={() => startCallDialog(false, activeConvId || undefined)}
                       className="p-2 bg-neutral-800 rounded-full hover:bg-neutral-700 text-neutral-400"
                     >
                       <Phone className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => startCallDialog(true)}
+                      onClick={() => startCallDialog(true, activeConvId || undefined)}
                       className="p-2 bg-neutral-800 rounded-full hover:bg-neutral-700 text-neutral-400"
                     >
                       <Video className="w-4 h-4" />
