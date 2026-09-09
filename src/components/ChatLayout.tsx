@@ -32,8 +32,17 @@ import {
   Trash2,
   Shield,
   ChevronDown,
-  BadgeCheck
-, Reply } from "lucide-react";
+  BadgeCheck,
+  Reply,
+  MoreVertical,
+  Users,
+  CheckSquare,
+  Filter,
+  Bell,
+  Archive,
+  ChevronLeft,
+  Edit2
+} from "lucide-react";
 import { Conversation, ChatMessage } from "../types";
 
 import { decryptFile } from "../crypto";
@@ -539,10 +548,12 @@ export default function ChatLayout({
       }
     };
 
-    socket.on("receive_call_signaling", onCallSignaling);
-    return () => {
-      socket.off("receive_call_signaling", onCallSignaling);
-    };
+    if (socket) {
+      socket.on("receive_call_signaling", onCallSignaling);
+      return () => {
+        socket.off("receive_call_signaling", onCallSignaling);
+      };
+    }
   }, [socket, callState]);
 
   const acceptCall = async () => {
