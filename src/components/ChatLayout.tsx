@@ -1,4 +1,65 @@
 
+function ScrollPicker({ items, selected, onChange, itemHeight = 40 }: { items: string[], selected: string, onChange: (val: string) => void, itemHeight?: number }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<any>(null);
+
+  const repeatedItems = useMemo(() => [...items, ...items, ...items], [items]);
+
+  useEffect(() => {
+    const centerIndex = items.length + Math.max(0, items.indexOf(selected));
+    if (containerRef.current) {
+      containerRef.current.scrollTop = centerIndex * itemHeight;
+    }
+  }, []); 
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (isScrollingRef.current) return;
+    
+    const scrollTop = e.currentTarget.scrollTop;
+    const index = Math.round(scrollTop / itemHeight);
+    
+    const actualIndex = index % items.length;
+    if (actualIndex >= 0 && actualIndex < items.length) {
+      const selectedItem = items[actualIndex];
+      if (selectedItem !== selected) {
+        onChange(selectedItem);
+      }
+    }
+
+    clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => {
+      if (index < items.length || index >= items.length * 2) {
+        isScrollingRef.current = true;
+        if (containerRef.current) containerRef.current.scrollTop = (items.length + actualIndex) * itemHeight;
+        setTimeout(() => { isScrollingRef.current = false; }, 50);
+      }
+    }, 150);
+  };
+
+  return (
+    <div 
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="overflow-y-auto h-full snap-y snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] py-[55px]"
+    >
+      {repeatedItems.map((val, i) => (
+        <button 
+          key={i} 
+          onClick={() => {
+            if (containerRef.current) {
+               containerRef.current.scrollTo({ top: i * itemHeight, behavior: 'smooth' });
+            }
+          }}
+          className={`w-full h-[40px] snap-center flex items-center justify-center text-xl font-medium transition-colors ${val === selected ? 'text-indigo-400' : 'text-neutral-500 hover:text-neutral-300'}`}
+        >
+          {val}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function CustomDateTimePicker({ onSelect, onClose }: { onSelect: (d: Date) => void, onClose: () => void }) {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [hour, setHour] = useState(() => {
@@ -18,8 +79,8 @@ function CustomDateTimePicker({ onSelect, onClose }: { onSelect: (d: Date) => vo
     return d;
   });
 
-  const hours = Array.from({length: 12}).map((_, i) => (i === 0 ? 12 : i).toString().padStart(2, '0'));
-  const minutes = ["00", "05", "10", "15", "20", "30", "40", "45", "50", "55"];
+  const hours = Array.from({length: 12}).map((_, i) => (i + 1).toString().padStart(2, '0'));
+  const minutes = Array.from({length: 60}).map((_, i) => i.toString().padStart(2, '0'));
 
   const handleSchedule = () => {
     const d = new Date(selectedDate);
@@ -71,24 +132,12 @@ function CustomDateTimePicker({ onSelect, onClose }: { onSelect: (d: Date) => vo
             <div className="flex items-center gap-4 justify-center">
               <div className="flex-1 bg-neutral-800 border border-neutral-700 rounded-2xl overflow-hidden h-[150px] relative">
                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-10 bg-white/5 pointer-events-none border-y border-white/10" />
-                 <div className="overflow-y-auto h-full snap-y snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] py-[55px]">
-                    {hours.map(h => (
-                      <button key={h} onClick={() => setHour(h)} className={`w-full h-10 snap-center flex items-center justify-center text-xl font-medium transition-colors ${hour === h ? 'text-indigo-400' : 'text-neutral-500 hover:text-neutral-300'}`}>
-                        {h}
-                      </button>
-                    ))}
-                 </div>
+                 <ScrollPicker items={hours} selected={hour} onChange={setHour} />
               </div>
               <span className="text-xl font-medium text-neutral-500">:</span>
               <div className="flex-1 bg-neutral-800 border border-neutral-700 rounded-2xl overflow-hidden h-[150px] relative">
                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-10 bg-white/5 pointer-events-none border-y border-white/10" />
-                 <div className="overflow-y-auto h-full snap-y snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] py-[55px]">
-                    {minutes.map(m => (
-                      <button key={m} onClick={() => setMinute(m)} className={`w-full h-10 snap-center flex items-center justify-center text-xl font-medium transition-colors ${minute === m ? 'text-indigo-400' : 'text-neutral-500 hover:text-neutral-300'}`}>
-                        {m}
-                      </button>
-                    ))}
-                 </div>
+                 <ScrollPicker items={minutes} selected={minute} onChange={setMinute} />
               </div>
               <div className="flex flex-col gap-2 w-16">
                  <button onClick={() => setAmpm("AM")} className={`flex-1 rounded-xl font-medium text-sm transition-all h-12 ${ampm === "AM" ? 'bg-indigo-600 text-white' : 'bg-neutral-800 text-neutral-400 border border-neutral-700 hover:bg-neutral-700'}`}>AM</button>
@@ -105,7 +154,6 @@ function CustomDateTimePicker({ onSelect, onClose }: { onSelect: (d: Date) => vo
     </div>
   );
 }
-
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import QRCode from "react-qr-code";
@@ -159,6 +207,7 @@ import { ScheduledClock } from "./ScheduledClock";
 import { DecryptedAvatar } from "./DecryptedAvatar";
 import { CallScreen, CallState } from "./CallScreen";
 import { CallsTab } from "./CallsTab";
+import { toast } from "./Toast";
 
 declare global {
   interface Window {
@@ -521,7 +570,7 @@ export default function ChatLayout({
   const initLocalStream = async (video: boolean) => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Your browser does not support media devices or it's blocked. Please try in a separate tab.");
+        toast("Your browser does not support media devices or it's blocked. Please try in a separate tab.", "error");
         return null;
       }
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -538,7 +587,7 @@ export default function ChatLayout({
       } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
         errorMsg = "No microphone or camera was found on your device.";
       }
-      alert(errorMsg);
+      toast(errorMsg, "error");
       return null;
     }
   };
@@ -1395,7 +1444,7 @@ export default function ChatLayout({
                       <button 
                         onClick={() => {
                           navigator.clipboard.writeText(groupLink);
-                          alert("Link copied!");
+                          toast("Link copied!", "success");
                         }}
                         className="p-2 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg transition-colors"
                       >
@@ -1788,10 +1837,10 @@ export default function ChatLayout({
                               window.location.href = "/";
                             }
                           } else {
-                            alert("Failed to delete account.");
+                            toast("Failed to delete account.", "error");
                           }
                         } catch (e) {
-                           alert("Error deleting account.");
+                           toast("Error deleting account.", "error");
                         }
                       }
                     }}

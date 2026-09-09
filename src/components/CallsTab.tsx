@@ -101,7 +101,7 @@ export function CallsTab({
               return (
                 <div key={call.id} className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900 cursor-pointer transition-colors" >
                   <div className="w-12 h-12 relative flex-shrink-0">
-                    <DecryptedAvatar photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined} fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"} className="w-full h-full text-lg" />
+                    <DecryptedAvatar photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined} fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"} className="w-full h-full text-lg rounded-full shadow-sm object-cover" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className={"font-medium text-lg truncate " + ((call.type === 'missed' || call.type === 'rejected') ? "text-red-500" : "text-neutral-100")}>
@@ -195,7 +195,7 @@ export function CallsTab({
             {conversations.map((conv) => (
               <div key={conv.id} className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900 cursor-pointer transition-colors" onClick={() => onStartCall(conv.id, false)}>
                 <div className="w-12 h-12 relative flex-shrink-0">
-                  <DecryptedAvatar photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined} fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"} className="w-full h-full text-lg" />
+                  <DecryptedAvatar photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined} fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"} className="w-full h-full text-lg rounded-full shadow-sm object-cover" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-[17px] text-neutral-100 truncate">

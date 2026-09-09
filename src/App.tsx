@@ -19,6 +19,7 @@ import {
 } from "./crypto";
 import { SignalProtocolStore } from "./signalStore";
 import { Conversation, ChatMessage, EnvelopePayload } from "./types";
+import { ToastContainer, toast } from "./components/Toast";
 export default function App() {
   const [identity, setIdentity] = useState<SignalIdentity | null>(() => {
     const local = localStorage.getItem("signal_identity");
@@ -156,7 +157,7 @@ export default function App() {
     });
 
     newSocket.on("notification", ({ message }: { message: string }) => {
-      alert(message); // simple notification
+      toast(message, "info"); // simple notification
     });
 
     newSocket.on("receive_message", async (doc: any) => {
@@ -663,7 +664,9 @@ export default function App() {
   };
 
   return (
-    <ChatLayout
+    <>
+      <ToastContainer />
+      <ChatLayout
       onSaveContact={handleSaveContact}
       socket={socket}
       myId={identity.securelyId}
@@ -686,5 +689,6 @@ export default function App() {
         setActiveConvId(null);
       }}
     />
+    </>
   );
 }

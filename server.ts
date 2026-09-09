@@ -60,6 +60,14 @@ const messageQueueSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now, expires: 2592000 }, // TTL 30 days
 });
 
+const attachmentSchema = new mongoose.Schema({
+  attachmentId: { type: String, required: true, unique: true },
+  buffer: { type: Buffer, required: true },
+  mimetype: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now, expires: 86400 * 30 } // 30 days
+});
+const Attachment = mongoose.model("Attachment", attachmentSchema);
+
 const scheduledMessageSchema = new mongoose.Schema({
   messageId: { type: String, required: true, unique: true },
   recipientId: { type: String, required: true },
@@ -99,7 +107,7 @@ async function setupDatabase() {
 // Multer setup for attachments
 const storage = multer.memoryStorage(); // We'll store it in memory for demo, could be on disk
 const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB
-const attachments = new Map<string, { buffer: Buffer; mimetype: string }>(); // Simple in-memory storage for attachments since we want a dumb endpoint
+
 
 // API Routes
 app.post("/api/v1/auth/signup", async (req, res) => {
@@ -208,31 +216,7 @@ app.delete("/api/v1/users", async (req, res) => {
   }
 });
 
-app.get("/api/v1/users/:id", async (req, res) => {
-  if (!dbReady) return res.status(503).json({ error: "DB not ready" });
-  try {
-    const user = await User.findOne({ securelyId: req.params.id });
-    if (!user) return res.status(404).json({ error: "User not found" });
-    
-    // Privacy feature: only return photoUrl and about if the requesting user is in their contacts?
-    // Wait, the requirement says "display it only when other user save contact". 
-    // This implies: User A's photo is visible to User B only if User A has saved User B as a contact.
-    // Or User A's photo is visible to User B only if User B has saved User A as a contact?
-    // Let's just return the photoUrl unconditionally for now, and rely on the client to fetch it when they save the contact,
-    // OR we can implement the "other user save contact" logic.
-    // If the requirement is "I can only see their photo if I save them", then we don't need backend privacy, we just need to fetch it when saved.
-    // Let's return the photoUrl.
-    res.json({
-      securelyId: user.securelyId,
-      displayName: user.displayName,
-      username: user.username,
-      photoUrl: user.photoUrl,
-      about: user.about,
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to get user" });
-  }
-});
+
 
 app.get("/api/v1/users/search", async (req, res) => {
   if (!dbReady) {
@@ -278,6 +262,32 @@ app.get("/api/v1/users/search", async (req, res) => {
   }
 });
 
+app.get("/api/v1/users/:id", async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: "DB not ready" });
+  try {
+    const user = await User.findOne({ securelyId: req.params.id });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    
+    // Privacy feature: only return photoUrl and about if the requesting user is in their contacts?
+    // Wait, the requirement says "display it only when other user save contact". 
+    // This implies: User A's photo is visible to User B only if User A has saved User B as a contact.
+    // Or User A's photo is visible to User B only if User B has saved User A as a contact?
+    // Let's just return the photoUrl unconditionally for now, and rely on the client to fetch it when they save the contact,
+    // OR we can implement the "other user save contact" logic.
+    // If the requirement is "I can only see their photo if I save them", then we don't need backend privacy, we just need to fetch it when saved.
+    // Let's return the photoUrl.
+    res.json({
+      securelyId: user.securelyId,
+      displayName: user.displayName,
+      username: user.username,
+      photoUrl: user.photoUrl,
+      about: user.about,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get user" });
+  }
+});
+
 app.get("/api/v1/bundle/:id", async (req, res) => {
   if (!dbReady) {
     res.status(503).json({ error: "DB not ready" });
@@ -304,44 +314,52 @@ app.get("/api/v1/bundle/:id", async (req, res) => {
   });
 });
 
-app.post("/api/v1/attachments", upload.single("file"), (req, res) => {
+app.post("/api/v1/attachments", upload.single("file"), async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: "DB not ready" });
   if (!req.file) {
     res.status(400).json({ error: "No file uploaded" });
     return;
   }
   const attachmentId = uuidv4();
-  attachments.set(attachmentId, {
-    buffer: req.file.buffer,
-    mimetype: req.file.mimetype,
-  });
-
-  // Clean up after 24 hours
-  setTimeout(
-    () => {
-      attachments.delete(attachmentId);
-    },
-    24 * 60 * 60 * 1000,
-  );
-
-  res.json({ attachmentId });
-});
-
-app.get("/api/v1/attachments/:id", (req, res) => {
-  const file = attachments.get(req.params.id);
-  if (!file) {
-    res.status(404).json({ error: "Attachment not found" });
-    return;
+  try {
+    await Attachment.create({
+      attachmentId,
+      buffer: req.file.buffer,
+      mimetype: req.file.mimetype,
+    });
+    res.json({ attachmentId });
+  } catch (err) {
+    console.error("Failed to save attachment", err);
+    res.status(500).json({ error: "Failed to save attachment" });
   }
-  res.setHeader("Content-Type", file.mimetype);
-  res.send(file.buffer);
 });
 
-app.delete("/api/v1/attachments/:id", (req, res) => {
-  if (attachments.has(req.params.id)) {
-    attachments.delete(req.params.id);
-    res.json({ success: true });
-  } else {
-    res.status(404).json({ error: "Attachment not found" });
+app.get("/api/v1/attachments/:id", async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: "DB not ready" });
+  try {
+    const file = await Attachment.findOne({ attachmentId: req.params.id });
+    if (!file) {
+      res.status(404).json({ error: "Attachment not found" });
+      return;
+    }
+    res.setHeader("Content-Type", file.mimetype);
+    res.send(file.buffer);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get attachment" });
+  }
+});
+
+app.delete("/api/v1/attachments/:id", async (req, res) => {
+  if (!dbReady) return res.status(503).json({ error: "DB not ready" });
+  try {
+    const result = await Attachment.deleteOne({ attachmentId: req.params.id });
+    if (result.deletedCount > 0) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: "Attachment not found" });
+    }
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete attachment" });
   }
 });
 
