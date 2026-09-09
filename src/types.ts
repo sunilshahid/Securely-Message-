@@ -37,4 +37,9 @@ export type EnvelopePayload = {
   isViewOnce?: boolean;
   attachmentId?: string;
   decryptionKey?: string;
+  replyTo?: {
+    text: string;
+    senderName: string;
+    isSelf: boolean;
+  };
 };

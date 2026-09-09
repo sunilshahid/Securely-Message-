@@ -442,6 +442,7 @@ type ChatLayoutProps = {
   ) => void;
   onViewOnceOpened: (msgId: string, attachmentId?: string) => void;
   onAddContact: (id: string, name?: string, photoUrl?: string, about?: string) => void;
+  onSaveContact: (id: string, name: string) => Promise<void>;
   onUpdateProfile: (updates: any) => void;
   onUpdateConversation?: (convId: string, updates: any) => void;
   onLogout?: () => void;
@@ -565,6 +566,8 @@ export default function ChatLayout({
     setIsIncomingCall(false);
     setIsMuted(false);
     setIsVideoOff(false);
+    window.__pendingOffer = null;
+    window.__pendingCandidates = [];
   };
 
   const initLocalStream = async (video: boolean) => {
@@ -573,10 +576,24 @@ export default function ChatLayout({
         toast("Your browser does not support media devices or it's blocked. Please try in a separate tab.", "error");
         return null;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video,
-        audio: true,
-      });
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video,
+          audio: true,
+        });
+      } catch (e: any) {
+        if (video && (e.name === 'NotReadableError' || e.name === 'NotFoundError')) {
+          console.warn("Camera in use or not found, falling back to audio-only");
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: true,
+          });
+          setIsVideoOff(true);
+        } else {
+          throw e;
+        }
+      }
       setLocalStream(stream);
       return stream;
     } catch (err: any) {
@@ -599,7 +616,17 @@ export default function ChatLayout({
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
     pc.ontrack = (event) => {
-      setRemoteStream(event.streams[0]);
+      let rStream = event.streams && event.streams[0];
+      if (!rStream) {
+         rStream = new MediaStream([event.track]);
+      }
+      setRemoteStream(prev => {
+         if (prev && event.streams && event.streams.length === 0) {
+            prev.addTrack(event.track);
+            return prev;
+         }
+         return rStream;
+      });
       setCallState("connected");
     };
 
@@ -634,6 +661,7 @@ export default function ChatLayout({
     setIsIncomingCall(false);
     setCallingUserId(idToCall);
     setCallState("calling");
+    window.__pendingCandidates = [];
     
     const stream = await initLocalStream(isVideoCall);
     if (!stream) {
@@ -666,6 +694,9 @@ export default function ChatLayout({
     }
   };
 
+  const callStateRef = useRef(callState);
+  useEffect(() => { callStateRef.current = callState; }, [callState]);
+
   useEffect(() => {
     if (!socket) return;
     
@@ -673,7 +704,7 @@ export default function ChatLayout({
       const { senderId, payload } = data;
       
       if (payload.type === "offer") {
-        if (callState !== "idle") {
+        if (callStateRef.current !== "idle") {
           // busy
           return;
         }
@@ -684,7 +715,8 @@ export default function ChatLayout({
 
         // Temporary create pc without stream just to save remote offer? Better to wait for user to accept.
         // Actually, we must save the offer.
-        window.__pendingOffer = payload.offer; 
+        window.__pendingOffer = payload.offer;
+        window.__pendingCandidates = [];
       }
       else if (payload.type === "answer") {
         if (peerConnectionRef.current) {
@@ -717,7 +749,7 @@ export default function ChatLayout({
         socket.off("receive_call_signaling", onCallSignaling);
       };
     }
-  }, [socket, callState]);
+  }, [socket]); // removed callState to prevent re-binding
 
   const acceptCall = async () => {
     if (!callingUserId || !window.__pendingOffer) return;
@@ -838,6 +870,10 @@ export default function ChatLayout({
 
   const startVoiceRecording = async () => {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast("Your browser does not support media devices or it's blocked. Please try in a separate tab.", "error");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
@@ -934,8 +970,9 @@ export default function ChatLayout({
     }
   };
 
-  const handleSend = (overrideScheduleTime?: Date) => {
-    if (!text.trim() && !attachment) return;
+  const handleSend = (overrideScheduleTime?: Date, overrideAttachment?: File) => {
+    const finalAttachment = overrideAttachment || attachment;
+    if (!text.trim() && !finalAttachment) return;
     let sTime: Date | undefined;
     if (overrideScheduleTime) {
       sTime = overrideScheduleTime;
@@ -948,7 +985,7 @@ export default function ChatLayout({
         : globalDisappear;
 
     // convert attachment
-    const atch = attachment ? attachment : undefined;
+    const atch = finalAttachment ? finalAttachment : undefined;
     onSendMessage(
       text,
       sTime,
@@ -1034,23 +1071,25 @@ export default function ChatLayout({
               />
             </div>
             
-            <button
-              onClick={() => {
-                onAddContact(myId, "Note to Self");
-                setShowAdd(false);
-                setNewContactId("");
-              }}
-              className="w-full bg-indigo-600/10 text-indigo-400 p-4 rounded-2xl font-medium hover:bg-indigo-600/20 transition-colors mb-6 text-left flex items-center gap-4"
-            >
-              <DecryptedAvatar 
-                photoUrl={undefined}
-                fallback="NO"
-                className="w-10 h-10 rounded-full shrink-0 shadow-sm"
-              />
-              <div className="flex-1">
-                <div className="text-lg text-indigo-100">Message Note to Self</div>
-              </div>
-            </button>
+            {!newContactId.trim() && (
+              <button
+                onClick={() => {
+                  onAddContact(myId, "Note to Self");
+                  setShowAdd(false);
+                  setNewContactId("");
+                }}
+                className="w-full bg-indigo-600/10 text-indigo-400 p-4 rounded-2xl font-medium hover:bg-indigo-600/20 transition-colors mb-6 text-left flex items-center gap-4"
+              >
+                <DecryptedAvatar 
+                  photoUrl={undefined}
+                  fallback="NO"
+                  className="w-10 h-10 rounded-full shrink-0 shadow-sm"
+                />
+                <div className="flex-1">
+                  <div className="text-lg text-indigo-100">Message Note to Self</div>
+                </div>
+              </button>
+            )}
 
             <div className="space-y-2">
               <div className="px-2 text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
@@ -1061,7 +1100,7 @@ export default function ChatLayout({
               ) : searchResults.length === 0 && newContactId.trim() ? (
                 <div className="text-center p-8 text-neutral-500">No users found.</div>
               ) : searchResults.length > 0 ? (
-                searchResults.map((u) => (
+                searchResults.filter(u => u.securelyId !== myId).map((u) => (
                   <button
                     key={u.securelyId}
                     onClick={() => {
@@ -1072,8 +1111,8 @@ export default function ChatLayout({
                     className="w-full p-4 flex items-center gap-4 hover:bg-neutral-900 rounded-2xl transition-colors text-left"
                   >
                     <DecryptedAvatar
-                      photoUrl={u.displayName && u.displayName !== 'Unknown' ? u.photoUrl : undefined}
-                      fallback={u.displayName && u.displayName !== 'Unknown' ? u.displayName.substring(0, 2).toUpperCase() : "?"}
+                      photoUrl={u.photoUrl}
+                      fallback={u.displayName && u.displayName !== 'Unknown' ? u.displayName.substring(0, 2).toUpperCase() : u.username ? u.username.substring(0, 2).toUpperCase() : "?"}
                       className="w-12 h-12 rounded-full shrink-0 shadow-sm"
                     />
                     <div className="flex-1 overflow-hidden">
@@ -2008,7 +2047,7 @@ export default function ChatLayout({
                   className={`w-full p-3 flex items-center gap-3 transition-colors text-left border-b border-neutral-800/50 ${activeConvId === conv.id ? "bg-neutral-800" : "hover:bg-neutral-800/50"}`}
                 >
                   <DecryptedAvatar 
-                    photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined}
+                    photoUrl={conv.photoUrl}
                     fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"}
                     className="w-12 h-12 rounded-full shrink-0 shadow-sm"
                   />
@@ -2067,7 +2106,7 @@ export default function ChatLayout({
                           className={`w-full p-3 flex items-center gap-3 transition-colors text-left border-b border-neutral-800/50 ${activeConvId === conv.id ? "bg-neutral-800" : "hover:bg-neutral-800/50"}`}
                         >
                           <DecryptedAvatar 
-                            photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined}
+                            photoUrl={conv.photoUrl}
                             fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"}
                             className="w-10 h-10 rounded-full shrink-0 shadow-sm"
                           />
@@ -2095,8 +2134,8 @@ export default function ChatLayout({
                           className="w-full p-3 transition-colors text-left border-b border-neutral-800/50 hover:bg-neutral-800/50 flex gap-3"
                         >
                           <DecryptedAvatar 
-                            photoUrl={msg.convName && msg.convName !== 'Unknown' ? msg.photoUrl : undefined}
-                            fallback={msg.convName && msg.convName !== 'Unknown' ? msg.convName.substring(0, 2).toUpperCase() : '?'}
+                            photoUrl={msg.photoUrl}
+                            fallback={msg.convName && msg.convName !== 'Unknown' ? msg.convName.substring(0, 2).toUpperCase() : "?"}
                             className="w-8 h-8 rounded-full shrink-0 shadow-sm mt-1"
                           />
                           <div className="flex-1 overflow-hidden min-w-0">
@@ -2224,7 +2263,7 @@ export default function ChatLayout({
                   onClick={() => setShowChatSettings(true)}
                 >
                   <DecryptedAvatar 
-                    photoUrl={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv?.photoUrl : undefined}
+                    photoUrl={activeConv?.photoUrl}
                     fallback={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv.displayName.substring(0, 2).toUpperCase() : "?"}
                     className="w-10 h-10 rounded-full shrink-0 shadow-sm"
                   />
@@ -2297,7 +2336,7 @@ export default function ChatLayout({
                       
                       <div className="flex flex-col items-center mb-12">
                         <DecryptedAvatar 
-                          photoUrl={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv?.photoUrl : undefined}
+                          photoUrl={activeConv?.photoUrl}
                           fallback={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv.displayName.substring(0, 2).toUpperCase() : "?"}
                           className="w-32 h-32 rounded-full shadow-xl mb-6 text-2xl"
                         />
@@ -2518,7 +2557,7 @@ export default function ChatLayout({
                 <div className="flex flex-col items-center justify-center mb-10 px-4 mt-4 w-full">
                   <div className="bg-neutral-900 shadow-lg p-5 rounded-3xl w-full max-w-md border border-neutral-800 flex flex-col items-center gap-4">
                     <div className="w-14 h-14 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center mb-1">
-                       <UserPlus className="w-7 h-7" />
+                       <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" className="w-7 h-7"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" y1="8" x2="19" y2="14"></line><line x1="22" y1="11" x2="16" y2="11"></line></svg>
                     </div>
                     <div className="text-center space-y-1">
                       <h3 className="text-lg font-medium text-neutral-100">Unknown Sender</h3>

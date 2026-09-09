@@ -98,7 +98,7 @@ export function CallScreen({
     }
   }, [localStream, isVideoOff]);
 
-  const showVideo = isVideo && callState === "connected" && !isVideoOff;
+  const showVideo = isVideo && callState === "connected";
 
   useEffect(() => {
     const applySinkId = async (element: HTMLMediaElement) => {
