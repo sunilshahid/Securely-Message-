@@ -78,8 +78,12 @@ export default function Onboarding({ onIdentityCreated }: OnboardingProps) {
         })
       });
       
+      if (!res.ok) {
+        let msg = 'Signup failed';
+        try { const errData = await res.json(); if (errData.error) msg = errData.error; } catch(e) {}
+        throw new Error(msg);
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Signup failed');
       
       setTimeout(() => {
         setStep('success');
@@ -108,8 +112,12 @@ export default function Onboarding({ onIdentityCreated }: OnboardingProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), passwordHash: pHash })
       });
+      if (!res.ok) {
+        let msg = 'Login failed';
+        try { const errData = await res.json(); if (errData.error) msg = errData.error; } catch(e) {}
+        throw new Error(msg);
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Login failed');
       
       const decryptedJson = await decryptIdentityWithPassword(data.encryptedIdentity, data.saltHex, password);
       const restoredIdentity = importIdentity(decryptedJson);

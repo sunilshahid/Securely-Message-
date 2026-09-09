@@ -39,7 +39,7 @@ export function DecryptedAvatar({
           const objectUrl = URL.createObjectURL(decryptedBlob);
           setUrl(objectUrl);
         })
-        .catch(console.error);
+        .catch(err => { if (err.message !== 'Failed to fetch') console.error(err); });
     });
     
     return () => {

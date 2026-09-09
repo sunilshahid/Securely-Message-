@@ -16,7 +16,7 @@ import {
   Share2, 
   Bell,
   X
-} from "lucide-react";
+,   PhoneIncoming,   PhoneOutgoing,   PhoneMissed,   PhoneOff} from "lucide-react";
 import { Conversation } from "../types";
 import { DecryptedAvatar } from "./DecryptedAvatar";
 
@@ -39,7 +39,7 @@ export function CallsTab({
   const recentCalls = conversations.slice(0, 5).map((c, i) => ({
     id: i.toString(),
     userId: c.id,
-    type: i % 3 === 0 ? "missed" : i % 2 === 0 ? "incoming" : "outgoing",
+    type: i % 4 === 0 ? "missed" : i % 4 === 1 ? "incoming" : i % 4 === 2 ? "outgoing" : "rejected",
     timestamp: new Date(Date.now() - i * 3600000 * 5),
     isVideo: i % 4 === 0
   }));
@@ -49,17 +49,20 @@ export function CallsTab({
       <div className="flex flex-col h-full bg-neutral-950 text-neutral-100 relative">
         {searchActive ? (
           <div className="flex items-center p-4 bg-neutral-950 sticky top-0 z-10 gap-3">
-            <button onClick={() => { setSearchActive(false); setSearchQuery(""); }} className="text-neutral-400">
-              <ArrowLeft className="w-6 h-6" />
+            <button onClick={() => { setSearchActive(false); setSearchQuery(""); }} className="p-2 -ml-2 text-neutral-400 hover:text-neutral-200 transition-colors">
+              <ArrowLeft className="w-5 h-5" />
             </button>
-            <input 
-              autoFocus
-              type="text" 
-              placeholder="Search by Username..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex-1 bg-neutral-900 border-none outline-none text-[17px] text-neutral-100 placeholder-neutral-500 rounded-full px-4 py-2" 
-            />
+            <div className="relative flex-1">
+              <Search className="w-5 h-5 absolute left-3 top-2.5 text-neutral-500 pointer-events-none" />
+              <input
+                autoFocus
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search calls..."
+                className="w-full bg-neutral-900 text-neutral-200 text-[15px] rounded-full pl-10 pr-4 py-2 outline-none focus:ring-1 focus:ring-neutral-700 transition-all placeholder-neutral-500 border border-neutral-800"
+              />
+            </div>
           </div>
         ) : (
           <div className="flex items-center justify-between p-4 bg-neutral-950 sticky top-0 z-10">
@@ -93,25 +96,37 @@ export function CallsTab({
               const idMatches = conv.id.toLowerCase().includes(searchQuery.toLowerCase());
               if (searchQuery.trim() !== "" && !nameMatches && !idMatches) return null;
               return (
-                <div key={call.id} className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900 cursor-pointer transition-colors" onClick={() => onStartCall(call.userId, call.isVideo)}>
+                <div key={call.id} className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900 cursor-pointer transition-colors" >
                   <div className="w-12 h-12 relative flex-shrink-0">
-                    <DecryptedAvatar photoUrl={conv.photoUrl} fallback={conv.displayName || conv.id} className="w-full h-full text-lg" />
+                    <DecryptedAvatar photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined} fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"} className="w-full h-full text-lg" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className={"font-medium text-lg truncate " + (call.type === 'missed' ? "text-red-500" : "text-neutral-100")}>
+                    <div className={"font-medium text-lg truncate " + ((call.type === 'missed' || call.type === 'rejected') ? "text-red-500" : "text-neutral-100")}>
                       {conv.displayName || conv.id}
                     </div>
                     <div className="flex items-center gap-1.5 text-neutral-400 text-sm mt-0.5">
-                      {call.type === "outgoing" && <ArrowUpRight className="w-4 h-4 text-indigo-500" />}
-                      {call.type === "incoming" && <ArrowDownLeft className="w-4 h-4 text-indigo-500" />}
-                      {call.type === "missed" && <ArrowDownLeft className="w-4 h-4 text-red-500" />}
+                      {call.type === "outgoing" && <ArrowUpRight className="w-4 h-4 text-green-500" />}
+                      {call.type === "incoming" && <ArrowDownLeft className="w-4 h-4 text-green-500" />}
+                      {call.type === "missed" && <PhoneMissed className="w-4 h-4 text-red-500" />}
+                      {call.type === "rejected" && <PhoneOff className="w-4 h-4 text-red-500" />}
                       <span>
                         {call.timestamp.toLocaleDateString([], { weekday: 'long' })}, {call.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
                   </div>
-                  <div className="p-2 text-neutral-400">
-                    <Phone className="w-6 h-6" />
+                  <div className="flex items-center gap-1 text-neutral-400 shrink-0">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onStartCall(call.userId, false); }} 
+                      className="p-2 hover:bg-neutral-800 rounded-full transition-colors"
+                    >
+                      <Phone className="w-5 h-5 text-neutral-300" />
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onStartCall(call.userId, true); }} 
+                      className="p-2 hover:bg-neutral-800 rounded-full transition-colors"
+                    >
+                      <Video className="w-5 h-5 text-neutral-300" />
+                    </button>
                   </div>
                 </div>
               );
@@ -141,13 +156,18 @@ export function CallsTab({
           <MoreVertical className="w-6 h-6 text-neutral-400" />
         </div>
 
-        <div className="px-4 py-2">
-          <div className="bg-neutral-900 rounded-full flex items-center px-4 py-3 gap-3">
-            <div className="flex-1">
-              <input type="text" placeholder="Search by Username..." className="bg-transparent border-none outline-none w-full text-[17px] text-neutral-100 placeholder-neutral-500" />
-            </div>
-            <Grid className="w-6 h-6 text-neutral-400" onClick={() => setView("keypad")} />
+        <div className="px-4 py-2 flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="w-5 h-5 absolute left-3 top-2.5 text-neutral-500 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search by Username..."
+              className="w-full bg-neutral-900 text-neutral-200 text-[15px] rounded-full pl-10 pr-4 py-2 outline-none focus:ring-1 focus:ring-neutral-700 transition-all placeholder-neutral-500 border border-neutral-800"
+            />
           </div>
+          <button className="p-2 text-neutral-400 hover:text-neutral-200" onClick={() => setView("keypad")}>
+            <Grid className="w-5 h-5" />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -167,7 +187,7 @@ export function CallsTab({
             {conversations.map((conv) => (
               <div key={conv.id} className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900 cursor-pointer transition-colors" onClick={() => onStartCall(conv.id, false)}>
                 <div className="w-12 h-12 relative flex-shrink-0">
-                  <DecryptedAvatar photoUrl={conv.photoUrl} fallback={conv.displayName || conv.id} className="w-full h-full text-lg" />
+                  <DecryptedAvatar photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined} fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"} className="w-full h-full text-lg" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-[17px] text-neutral-100 truncate">
@@ -273,7 +293,7 @@ export function CallsTab({
               <div className="flex-1 min-w-0 pr-2">
                  <div className="text-[17px] font-medium mb-1">Signal call</div>
                  <div className="text-neutral-400 text-sm leading-relaxed break-all">
-                    https://signal.link/call/#key=nqqdzxdb-txpnmbbf-qkkzzdgh-dhsxmrtx-nc-bbbbbbbb
+                    {window.location.origin}/call/#key=nqqdzxdb-txpnmbbf-qkkzzdgh-dhsxmrtx-nc-bbbbbbbb
                  </div>
               </div>
               <button className="px-4 py-2 bg-indigo-500 text-white rounded-full font-medium text-sm">Join</button>

@@ -358,6 +358,8 @@ export default function App() {
     file?: File,
     expireIn?: number,
     isViewOnce?: boolean,
+    replyToId?: string,
+    replyTo?: any
   ) => {
     if (!activeConvId || !identity || !socketRef.current || !storeRef.current)
       return;
@@ -403,6 +405,8 @@ export default function App() {
         isViewOnce,
         attachmentId,
         decryptionKey,
+        replyToId,
+        replyTo,
       };
 
       if (isScheduled && scheduledTime) {
@@ -475,16 +479,23 @@ export default function App() {
       decryptionKey,
       expireIn,
       isViewOnce,
+      replyToId,
+      replyTo,
     };
     const textBytes = new TextEncoder().encode(
       JSON.stringify(plainPayload),
     ).buffer;
 
     const address = new SignalProtocolAddress(activeConvId, 1);
-    await ensureSession(address, activeConvId);
-
-    const cipher = new SessionCipher(storeRef.current, address);
-    const ciphertextObj = await cipher.encrypt(textBytes);
+    let ciphertextObj;
+    try {
+      await ensureSession(address, activeConvId);
+      const cipher = new SessionCipher(storeRef.current, address);
+      ciphertextObj = await cipher.encrypt(textBytes);
+    } catch (err: any) {
+      if (err.message !== 'Failed to fetch') console.error("Encryption/Session error", err);
+      return;
+    }
 
     const payloadWrapper = {
       type: ciphertextObj.type,
@@ -511,6 +522,8 @@ export default function App() {
       decryptionKey,
       expireIn,
       isViewOnce,
+      replyToId,
+      replyTo,
     };
 
     setConversations((prev) => {
@@ -628,8 +641,16 @@ export default function App() {
     return <Onboarding onIdentityCreated={handleIdentityCreated} />;
   }
 
+  
+  const handleSaveContact = (userId: string, name: string) => {
+    setConversations((prev) => 
+      prev.map(c => c.id === userId ? { ...c, displayName: name } : c)
+    );
+  };
+
   return (
     <ChatLayout
+      onSaveContact={handleSaveContact}
       socket={socket}
       myId={identity.securelyId}
       myName={identity.displayName}

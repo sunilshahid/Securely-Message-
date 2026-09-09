@@ -15,12 +15,24 @@ export type ChatMessage = {
   decryptedText: string;
   timestamp: Date;
   attachmentId?: string; // If there is an attachment
-  decryptionKey?: string; // AES key for attachment
+  decryptionKey?: string;
+  replyToId?: string;
+  replyTo?: {
+    text: string;
+    senderName: string;
+    isSelf: boolean;
+  }; // AES key for attachment
   expireIn?: number; // Disappearing messages
   isViewOnce?: boolean;
   viewOnceViewed?: boolean;
   scheduledTime?: Date;
   status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'scheduled';
+  replyToId?: string;
+  replyTo?: {
+    text: string;
+    senderName: string;
+    isSelf: boolean;
+  };
 };
 
 export type EnvelopePayload = {

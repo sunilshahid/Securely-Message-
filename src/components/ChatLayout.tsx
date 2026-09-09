@@ -27,11 +27,13 @@ import {
   Video,
   CircleDashed,
   LogOut,
+  Calendar,
+  Copy,
   Trash2,
   Shield,
   ChevronDown,
   BadgeCheck
-} from "lucide-react";
+, Reply } from "lucide-react";
 import { Conversation, ChatMessage } from "../types";
 
 import { decryptFile } from "../crypto";
@@ -112,7 +114,7 @@ function AttachmentLoader({
         setType(decrypted.type);
         setUrl(URL.createObjectURL(decrypted));
       })
-      .catch(console.error);
+      .catch(err => { if (err.message !== 'Failed to fetch') console.error(err); });
   }, [attachmentId, decryptionKey]);
 
   if (!url) {
@@ -213,9 +215,7 @@ function ViewOnceMessage({
         const decrypted = await decryptFile(blob, keyHex, mimeType);
         setType(decrypted.type);
         setUrl(URL.createObjectURL(decrypted));
-      } catch (err) {
-        console.error(err);
-      }
+      } catch (err) { if (err.message !== 'Failed to fetch') console.error(err); }
       setDecrypting(false);
     }
   };
@@ -271,6 +271,8 @@ type ChatLayoutProps = {
     attachment?: File,
     expireIn?: number,
     isViewOnce?: boolean,
+    replyToId?: string,
+    replyTo?: { text: string; senderName: string; isSelf: boolean; }
   ) => void;
   onViewOnceOpened: (msgId: string, attachmentId?: string) => void;
   onAddContact: (id: string, name?: string, photoUrl?: string, about?: string) => void;
@@ -291,6 +293,7 @@ export default function ChatLayout({
   onSelectConv,
   onSendMessage,
   onViewOnceOpened,
+  onSaveContact,
   onAddContact,
   onUpdateProfile,
   onUpdateConversation,
@@ -329,6 +332,24 @@ export default function ChatLayout({
   const [attachment, setAttachment] = useState<File | null>(null);
   const [isViewOnce, setIsViewOnce] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const cancelRecordingRef = useRef(false);
+  const sendAfterRecordingRef = useRef(false);
+  const recordingTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isRecording) {
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      setRecordingTime(0);
+    }
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    }
+  }, [isRecording]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
@@ -336,6 +357,15 @@ export default function ChatLayout({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [showChatMenu, setShowChatMenu] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [showNotificationProfile, setShowNotificationProfile] = useState(false);
+  const [showNotificationProfileSettings, setShowNotificationProfileSettings] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [groupLink, setGroupLink] = useState("");
+  const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
+  const [contactNameInput, setContactNameInput] = useState("");
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -595,9 +625,7 @@ export default function ChatLayout({
           const data = await res.json();
           setSearchResults(data);
         }
-      } catch (e) {
-        console.error(e);
-      } finally {
+      } catch (e) { if (e.message !== 'Failed to fetch') console.error(e); } finally {
         setIsSearching(false);
       }
     }, 400);
@@ -632,6 +660,7 @@ export default function ChatLayout({
   const scheduledMessages = activeConv?.messages.filter((m) => m.status === "scheduled") || [];
   
   const [showScheduledModal, setShowScheduledModal] = useState(false);
+  const [openScheduleMenuId, setOpenScheduleMenuId] = useState<string | null>(null);
 
   const startVoiceRecording = async () => {
     try {
@@ -639,12 +668,21 @@ export default function ChatLayout({
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      cancelRecordingRef.current = false;
+      sendAfterRecordingRef.current = false;
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        
+        if (cancelRecordingRef.current) {
+          cancelRecordingRef.current = false;
+          return;
+        }
+
         const audioBlob = new Blob(audioChunksRef.current, {
           type: "audio/webm",
         });
@@ -652,13 +690,65 @@ export default function ChatLayout({
           type: "audio/webm",
         });
         setAttachment(audioFile);
-        stream.getTracks().forEach((track) => track.stop());
+        
+        if (sendAfterRecordingRef.current) {
+          sendAfterRecordingRef.current = false;
+          // Use setTimeout to ensure attachment state would have settled, or just manually call send
+          setTimeout(() => {
+             // We can't easily rely on handleSend directly since attachment is async
+             // We'll simulate by calling onSendMessage directly here
+             let expireValue = activeConv?.disappearDelay !== undefined ? activeConv.disappearDelay : globalDisappear;
+             onSendMessage(
+               "", 
+               undefined, 
+               audioFile, 
+               expireValue === -1 ? 0 : expireValue, 
+               false,
+               replyingTo?.id,
+               replyingTo ? {
+                  text: (() => {
+  if (replyingTo.decryptedText) return replyingTo.decryptedText;
+  if (replyingTo.attachmentId) {
+    if (replyingTo.isViewOnce) return "💣 View once message";
+    const mime = (replyingTo.decryptionKey || "").split("|")[1] || "";
+    if (mime.startsWith("audio/")) return "🎤 Voice message";
+    if (mime.startsWith("image/")) return "📷 Photo";
+    if (mime.startsWith("video/")) return "🎥 Video";
+    return "📎 Attachment";
+  }
+  return "";
+})(),
+                  senderName: replyingTo.isSelf ? 'You' : (activeConv?.displayName || 'Unknown'),
+                  isSelf: replyingTo.isSelf
+               } : undefined
+             );
+             setReplyingTo(null);
+             setAttachment(null);
+          }, 0);
+        }
       };
 
       mediaRecorder.start();
       setIsRecording(true);
+      setRecordingTime(0);
     } catch (err) {
       console.error("Microphone error", err);
+    }
+  };
+
+  const cancelVoiceRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      cancelRecordingRef.current = true;
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const stopVoiceRecordingAndSend = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      sendAfterRecordingRef.current = true;
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
     }
   };
 
@@ -688,7 +778,25 @@ export default function ChatLayout({
       atch,
       expireValue > 0 ? expireValue : undefined,
       isViewOnce,
+      replyingTo?.id,
+      replyingTo ? {
+        text: (() => {
+  if (replyingTo.decryptedText) return replyingTo.decryptedText;
+  if (replyingTo.attachmentId) {
+    if (replyingTo.isViewOnce) return "💣 View once message";
+    const mime = (replyingTo.decryptionKey || "").split("|")[1] || "";
+    if (mime.startsWith("audio/")) return "🎤 Voice message";
+    if (mime.startsWith("image/")) return "📷 Photo";
+    if (mime.startsWith("video/")) return "🎥 Video";
+    return "📎 Attachment";
+  }
+  return "";
+})(),
+        senderName: replyingTo.isSelf ? 'You' : (activeConv?.displayName || 'Unknown'),
+        isSelf: replyingTo.isSelf
+      } : undefined
     );
+    setReplyingTo(null);
 
     setText("");
     setAttachment(null);
@@ -737,14 +845,14 @@ export default function ChatLayout({
               <h1 className="text-2xl font-medium flex-1">New Chat</h1>
             </div>
             
-            <div className="relative mb-6">
-              <Search className="w-5 h-5 absolute left-4 top-3.5 text-neutral-500" />
+            <div className="relative mb-6 w-full">
+              <Search className="w-5 h-5 absolute left-3 top-2.5 text-neutral-500 pointer-events-none" />
               <input
                 type="text"
                 value={newContactId}
                 onChange={(e) => setNewContactId(e.target.value)}
                 placeholder="Search by Username..."
-                className="w-full bg-neutral-900 text-white rounded-2xl pl-12 pr-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500 transition-all border border-neutral-800 text-lg"
+                className="w-full bg-neutral-900 text-neutral-200 text-[15px] rounded-full pl-10 pr-4 py-2 outline-none focus:ring-1 focus:ring-neutral-700 transition-all placeholder-neutral-500 border border-neutral-800"
                 autoFocus
               />
             </div>
@@ -787,13 +895,13 @@ export default function ChatLayout({
                     className="w-full p-4 flex items-center gap-4 hover:bg-neutral-900 rounded-2xl transition-colors text-left"
                   >
                     <DecryptedAvatar
-                      photoUrl={u.photoUrl}
-                      fallback={u.displayName ? u.displayName.substring(0, 2).toUpperCase() : u.securelyId.substring(0, 4)}
+                      photoUrl={u.displayName && u.displayName !== 'Unknown' ? u.photoUrl : undefined}
+                      fallback={u.displayName && u.displayName !== 'Unknown' ? u.displayName.substring(0, 2).toUpperCase() : "?"}
                       className="w-12 h-12 rounded-full shrink-0 shadow-sm"
                     />
                     <div className="flex-1 overflow-hidden">
                       <h3 className="font-medium text-lg text-neutral-200 truncate">
-                        {u.displayName || "Unknown User"}
+                        {u.displayName || "Unknown"}
                       </h3>
                       <p className="text-sm text-neutral-500 truncate">
                         {u.username
@@ -872,7 +980,7 @@ export default function ChatLayout({
                                       onUpdateProfile({ 
                                         photoUrl: `${data.attachmentId}|${keyHex}|${mimeType}` 
                                       });
-                                    }).catch(console.error);
+                                    }).catch(err => { if (err.message !== 'Failed to fetch') console.error(err); });
                                   });
                                 });
                               }
@@ -1098,6 +1206,277 @@ export default function ChatLayout({
           )}
         </div>
       )}
+
+      
+      {/* ---------------- NEW GROUP MODAL ---------------- */}
+      <AnimatePresence>
+        {showNewGroup && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-neutral-900 border border-neutral-800 rounded-3xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden h-[80vh] md:h-auto md:max-h-[85vh]"
+            >
+              <div className="flex justify-between items-center p-4 border-b border-neutral-800 bg-neutral-950">
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => setShowNewGroup(false)}
+                    className="p-2 -ml-2 rounded-full hover:bg-neutral-800 transition-colors text-neutral-400 hover:text-white"
+                  >
+                    <ArrowLeft className="w-6 h-6" />
+                  </button>
+                  <h2 className="text-xl font-medium text-white">Name this group</h2>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-8">
+                <div className="flex items-center gap-4">
+                  <button className="w-14 h-14 rounded-full bg-neutral-800 flex items-center justify-center shrink-0 hover:bg-neutral-700 transition-colors text-neutral-400">
+                    <Camera className="w-6 h-6" />
+                  </button>
+                  <div className="flex-1 border-b border-neutral-700 pb-1">
+                    <input 
+                      type="text" 
+                      placeholder="Group name (required)" 
+                      value={groupName}
+                      onChange={(e) => setGroupName(e.target.value)}
+                      className="w-full bg-transparent border-none outline-none text-white text-lg placeholder-neutral-500"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Clock className="w-6 h-6 text-neutral-400" />
+                    <span className="text-lg text-white">Disappearing messages</span>
+                  </div>
+                  <span className="text-neutral-400 text-lg">Off</span>
+                </div>
+
+                <div className="border-t border-neutral-800 pt-6">
+                  <h3 className="text-lg font-medium text-white mb-2">Members</h3>
+                  <p className="text-neutral-400 text-base">You can add or invite friends after creating this group.</p>
+                </div>
+
+                {groupLink && (
+                  <div className="mt-8 p-4 bg-indigo-900/20 border border-indigo-500/30 rounded-2xl">
+                    <p className="text-sm font-medium text-indigo-400 mb-2">Group Link Generated</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-neutral-300 truncate flex-1">{groupLink}</span>
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(groupLink);
+                          alert("Link copied!");
+                        }}
+                        className="p-2 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg transition-colors"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-neutral-800 bg-neutral-950 flex justify-end">
+                {groupLink ? (
+                  <button
+                    onClick={() => {
+                      setShowNewGroup(false);
+                      setGroupLink("");
+                      setGroupName("");
+                    }}
+                    className="px-6 py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white font-medium rounded-full transition-colors"
+                  >
+                    Done
+                  </button>
+                ) : (
+                  <button
+                    disabled={!groupName.trim()}
+                    onClick={() => {
+                      // Generate link exactly like we do for video calls
+                      const id = crypto.randomUUID ? crypto.randomUUID().split("-")[0] : Math.random().toString(36).substring(7);
+                      setGroupLink(window.location.origin + "?group=" + id);
+                    }}
+                    className="px-6 py-2.5 bg-neutral-200 disabled:bg-neutral-800 text-neutral-900 disabled:text-neutral-500 font-medium rounded-full transition-colors"
+                  >
+                    Create
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ---------------- NOTIFICATION PROFILES BOTTOM SHEET ---------------- */}
+      <AnimatePresence>
+        {showNotificationProfile && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0"
+              onClick={() => setShowNotificationProfile(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: "100%" }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="w-full max-w-md bg-neutral-100 rounded-t-3xl sm:rounded-3xl shadow-2xl relative z-10 overflow-hidden"
+            >
+              <div className="w-12 h-1 bg-neutral-300 rounded-full mx-auto mt-3 mb-2" />
+              <div className="p-2 space-y-1">
+                <button 
+                   onClick={() => {
+                     setShowNotificationProfile(false);
+                     setShowNotificationProfileSettings(true);
+                   }}
+                   className="w-full flex items-center justify-between p-4 bg-white hover:bg-neutral-50 rounded-2xl transition-colors mb-2 shadow-sm"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center text-2xl shadow-sm">
+                      💪
+                    </div>
+                    <div className="text-left">
+                      <h3 className="text-lg font-medium text-neutral-900">Work</h3>
+                      <p className="text-neutral-500 text-sm">Off</p>
+                    </div>
+                  </div>
+                  <ChevronLeft className="w-6 h-6 text-neutral-400 rotate-180" />
+                </button>
+                
+                <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-neutral-100 mb-2">
+                   <button className="w-full text-left p-4 hover:bg-neutral-50 transition-colors text-neutral-900 text-[17px]">
+                     For 1 hour
+                   </button>
+                   <button className="w-full text-left p-4 hover:bg-neutral-50 transition-colors text-neutral-900 text-[17px]">
+                     Until 6:00 PM
+                   </button>
+                   <button 
+                     onClick={() => {
+                       setShowNotificationProfile(false);
+                       setShowNotificationProfileSettings(true);
+                     }}
+                     className="w-full text-left p-4 hover:bg-neutral-50 transition-colors text-neutral-900 text-[17px]"
+                   >
+                     View settings
+                   </button>
+                </div>
+
+                <button 
+                  onClick={() => {
+                     setShowNotificationProfile(false);
+                     setShowNotificationProfileSettings(true);
+                  }}
+                  className="w-full flex items-center gap-4 p-4 bg-white hover:bg-neutral-50 rounded-2xl transition-colors shadow-sm"
+                >
+                  <div className="w-12 h-12 rounded-full border border-neutral-300 flex items-center justify-center">
+                    <Plus className="w-6 h-6 text-neutral-700" />
+                  </div>
+                  <span className="text-[17px] font-medium text-neutral-900">New profile</span>
+                </button>
+              </div>
+              <div className="h-6" />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ---------------- NOTIFICATION PROFILE SETTINGS ---------------- */}
+      <AnimatePresence>
+        {showNotificationProfileSettings && (
+          <div className="fixed inset-0 z-50 bg-neutral-100 flex flex-col">
+            <motion.div
+              initial={{ opacity: 0, x: "100%" }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="flex-1 flex flex-col w-full h-full bg-neutral-100"
+            >
+              <div className="flex items-center gap-4 p-4 bg-neutral-100 sticky top-0 z-10 border-b border-neutral-200">
+                <button 
+                  onClick={() => setShowNotificationProfileSettings(false)} 
+                  className="p-2 -ml-2 rounded-full hover:bg-neutral-200 transition-colors text-neutral-700"
+                >
+                  <ArrowLeft className="w-6 h-6" />
+                </button>
+                <h1 className="text-2xl font-medium text-neutral-900 flex-1">Work</h1>
+                <button className="p-2 text-neutral-700 hover:bg-neutral-200 rounded-full transition-colors">
+                  <Edit2 className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                <div className="p-4 bg-white mb-2 flex items-center justify-between shadow-sm">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-pink-100 flex items-center justify-center text-2xl shadow-sm">
+                      💪
+                    </div>
+                    <span className="text-[17px] text-neutral-900 font-medium">Work</span>
+                  </div>
+                  <div className="w-12 h-6 bg-neutral-300 rounded-full relative cursor-pointer">
+                    <div className="w-5 h-5 bg-white rounded-full absolute top-0.5 left-0.5 shadow-sm" />
+                  </div>
+                </div>
+
+                <div className="bg-white mb-2 shadow-sm py-4">
+                  <h3 className="px-4 text-base font-medium text-neutral-900 mb-4">Allowed notifications</h3>
+                  <button className="w-full flex items-center gap-4 px-4 py-2 hover:bg-neutral-50 transition-colors">
+                    <div className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center shrink-0 border border-neutral-200">
+                      <Plus className="w-6 h-6 text-neutral-700" />
+                    </div>
+                    <span className="text-[17px] text-neutral-900">Add people or groups</span>
+                  </button>
+                </div>
+
+                <div className="bg-white mb-2 shadow-sm py-4">
+                  <h3 className="px-4 text-base font-medium text-neutral-900 mb-4">Schedule</h3>
+                  <button className="w-full flex items-center gap-4 px-4 py-2 hover:bg-neutral-50 transition-colors">
+                    <div className="w-6 h-6 flex items-center justify-center shrink-0">
+                      <Clock className="w-6 h-6 text-neutral-700" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[17px] text-neutral-900">Schedule</p>
+                      <p className="text-[15px] text-neutral-500">Off</p>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="bg-white mb-2 shadow-sm py-4">
+                  <h3 className="px-4 text-base font-medium text-neutral-900 mb-4">Exceptions</h3>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-4">
+                      <Phone className="w-6 h-6 text-neutral-700" />
+                      <span className="text-[17px] text-neutral-900">Allow all calls</span>
+                    </div>
+                    <div className="w-12 h-6 bg-indigo-600 rounded-full relative cursor-pointer">
+                      <div className="w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 shadow-sm" />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-4">
+                      <span className="w-6 h-6 text-neutral-700 font-medium text-xl flex items-center justify-center">@</span>
+                      <span className="text-[17px] text-neutral-900">Notify for all mentions</span>
+                    </div>
+                    <div className="w-12 h-6 bg-neutral-300 rounded-full relative cursor-pointer">
+                      <div className="w-5 h-5 bg-white rounded-full absolute top-0.5 left-0.5 shadow-sm" />
+                    </div>
+                  </div>
+                </div>
+
+                <button className="w-full bg-white p-4 flex items-center gap-4 shadow-sm hover:bg-neutral-50 transition-colors mt-6 mb-12">
+                  <Trash2 className="w-6 h-6 text-red-500" />
+                  <span className="text-[17px] text-red-500">Delete profile</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {showSettings && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1333,14 +1712,63 @@ export default function ChatLayout({
                     onClick={() => setIsSearchActive(true)}
                     className="p-2 text-neutral-400 hover:text-neutral-200 transition-colors"
                   >
-                    <Search className="w-5 h-5" />
+                    <Search className="w-6 h-6" />
                   </button>
-                  <button
-                    onClick={() => setShowSettings(true)}
-                    className="p-2 text-neutral-400 hover:text-neutral-200 transition-colors"
-                  >
-                    <Settings className="w-5 h-5" />
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowChatMenu(!showChatMenu)}
+                      className="p-2 text-neutral-400 hover:text-neutral-200 transition-colors"
+                    >
+                      <MoreVertical className="w-6 h-6" />
+                    </button>
+                    <AnimatePresence>
+                      {showChatMenu && (
+                        <>
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 z-40"
+                            onClick={() => setShowChatMenu(false)}
+                          />
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                            className="absolute right-0 top-12 w-56 bg-neutral-900 border border-neutral-800 rounded-2xl shadow-xl z-50 overflow-hidden py-2"
+                          >
+                            <button 
+                              onClick={() => { setShowChatMenu(false); setShowNewGroup(true); }}
+                              className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
+                            >
+                              <Users className="w-5 h-5 text-neutral-400" /> New group
+                            </button>
+                            <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
+                              <CheckSquare className="w-5 h-5 text-neutral-400" /> Mark all read
+                            </button>
+                            <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
+                              <Filter className="w-5 h-5 text-neutral-400" /> Filter unread chats
+                            </button>
+                            <button 
+                              onClick={() => { setShowChatMenu(false); setShowNotificationProfile(true); }}
+                              className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
+                            >
+                              <Bell className="w-5 h-5 text-neutral-400" /> Notification profile
+                            </button>
+                            <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
+                              <Archive className="w-5 h-5 text-neutral-400" /> Archived chats
+                            </button>
+                            <button 
+                              onClick={() => { setShowChatMenu(false); setShowSettings(true); }}
+                              className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
+                            >
+                              <Settings className="w-5 h-5 text-neutral-400" /> Settings
+                            </button>
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
               </motion.div>
             ) : (
@@ -1352,24 +1780,27 @@ export default function ChatLayout({
                 transition={{ duration: 0.2 }}
                 className="flex items-center w-full"
               >
-                <div className="relative w-full flex items-center">
+                <div className="relative w-full flex items-center gap-3">
                   <button 
                     onClick={() => {
                       setIsSearchActive(false);
                       setSearchQuery("");
                     }}
-                    className="p-2 text-neutral-400 hover:text-neutral-200 absolute left-1 z-10"
+                    className="p-2 -ml-2 text-neutral-400 hover:text-neutral-200 transition-colors"
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </button>
-                  <input
-                    autoFocus
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search messages..."
-                    className="w-full bg-neutral-800 text-neutral-200 text-sm rounded-full pl-10 pr-4 py-2 focus:outline-none focus:ring-1 focus:ring-neutral-700 transition-all placeholder-neutral-500"
-                  />
+                  <div className="relative flex-1">
+                    <Search className="w-5 h-5 absolute left-3 top-2.5 text-neutral-500 pointer-events-none" />
+                    <input
+                      autoFocus
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search messages..."
+                      className="w-full bg-neutral-900 text-neutral-200 text-[15px] rounded-full pl-10 pr-4 py-2 outline-none focus:ring-1 focus:ring-neutral-700 transition-all placeholder-neutral-500 border border-neutral-800"
+                    />
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -1399,14 +1830,14 @@ export default function ChatLayout({
                   className={`w-full p-3 flex items-center gap-3 transition-colors text-left border-b border-neutral-800/50 ${activeConvId === conv.id ? "bg-neutral-800" : "hover:bg-neutral-800/50"}`}
                 >
                   <DecryptedAvatar 
-                    photoUrl={conv.photoUrl}
-                    fallback={conv.displayName ? conv.displayName.substring(0, 2).toUpperCase() : conv.id.substring(0, 4)}
+                    photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined}
+                    fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"}
                     className="w-12 h-12 rounded-full shrink-0 shadow-sm"
                   />
                   <div className="flex-1 overflow-hidden">
                     <div className="flex justify-between items-baseline mb-0.5">
                       <h3 className="font-medium text-neutral-200 truncate">
-                        {conv.displayName || "Unknown User"}
+                        {conv.displayName || "Unknown"}
                       </h3>
                       <span className="text-xs text-neutral-500 shrink-0">
                         {conv.messages.length > 0 &&
@@ -1419,9 +1850,20 @@ export default function ChatLayout({
                       </span>
                     </div>
                     <p className="text-sm text-neutral-500 truncate">
-                      {conv.messages.length > 0
-                        ? conv.messages[conv.messages.length - 1].decryptedText
-                        : "Encrypted session started"}
+                      {(() => {
+                        if (conv.messages.length === 0) return "Encrypted session started";
+                        const lastMsg = conv.messages[conv.messages.length - 1];
+                        if (lastMsg.decryptedText) return lastMsg.decryptedText;
+                        if (lastMsg.attachmentId) {
+                          if (lastMsg.isViewOnce) return "💣 View once message";
+                          const mime = (lastMsg.decryptionKey || "").split("|")[1] || "";
+                          if (mime.startsWith("audio/")) return "🎤 Voice message";
+                          if (mime.startsWith("image/")) return "📷 Photo";
+                          if (mime.startsWith("video/")) return "🎥 Video";
+                          return "📎 Attachment";
+                        }
+                        return "Encrypted message";
+                      })()}
                     </p>
                   </div>
                 </button>
@@ -1447,13 +1889,13 @@ export default function ChatLayout({
                           className={`w-full p-3 flex items-center gap-3 transition-colors text-left border-b border-neutral-800/50 ${activeConvId === conv.id ? "bg-neutral-800" : "hover:bg-neutral-800/50"}`}
                         >
                           <DecryptedAvatar 
-                            photoUrl={conv.photoUrl}
-                            fallback={conv.displayName ? conv.displayName.substring(0, 2).toUpperCase() : conv.id.substring(0, 4)}
+                            photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined}
+                            fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"}
                             className="w-10 h-10 rounded-full shrink-0 shadow-sm"
                           />
                           <div className="flex-1 overflow-hidden">
                             <h3 className="font-medium text-neutral-200 truncate">
-                              {conv.displayName || "Unknown User"}
+                              {conv.displayName || "Unknown"}
                             </h3>
                           </div>
                         </button>
@@ -1470,12 +1912,13 @@ export default function ChatLayout({
                             onSelectConv(msg.convId);
                             setIsSearchActive(false);
                             setSearchQuery("");
+                            setHighlightMsgId(msg.id);
                           }}
                           className="w-full p-3 transition-colors text-left border-b border-neutral-800/50 hover:bg-neutral-800/50 flex gap-3"
                         >
                           <DecryptedAvatar 
-                            photoUrl={msg.photoUrl}
-                            fallback={msg.convName.substring(0, 2).toUpperCase()}
+                            photoUrl={msg.convName && msg.convName !== 'Unknown' ? msg.photoUrl : undefined}
+                            fallback={msg.convName && msg.convName !== 'Unknown' ? msg.convName.substring(0, 2).toUpperCase() : '?'}
                             className="w-8 h-8 rounded-full shrink-0 shadow-sm mt-1"
                           />
                           <div className="flex-1 overflow-hidden min-w-0">
@@ -1602,13 +2045,13 @@ export default function ChatLayout({
                   onClick={() => setShowChatSettings(true)}
                 >
                   <DecryptedAvatar 
-                    photoUrl={activeConv?.photoUrl}
-                    fallback={activeConv?.displayName ? activeConv.displayName.substring(0, 2).toUpperCase() : activeConv?.id?.substring(0, 4) || "U"}
+                    photoUrl={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv?.photoUrl : undefined}
+                    fallback={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv.displayName.substring(0, 2).toUpperCase() : "?"}
                     className="w-10 h-10 rounded-full shrink-0 shadow-sm"
                   />
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium text-neutral-100 truncate flex items-center gap-1.5">
-                      {isNoteToSelf ? "Note to Self" : (activeConv?.displayName || "Unknown User")}
+                      {isNoteToSelf ? "Note to Self" : (activeConv?.displayName || "Unknown")}
                       {isNoteToSelf && <BadgeCheck className="w-4 h-4 text-indigo-400 shrink-0" />}
                     </h3>
                     <p className="text-xs text-neutral-500 mb-1 truncate">
@@ -1675,12 +2118,12 @@ export default function ChatLayout({
                       
                       <div className="flex flex-col items-center mb-12">
                         <DecryptedAvatar 
-                          photoUrl={activeConv?.photoUrl}
-                          fallback={activeConv?.displayName ? activeConv.displayName.substring(0, 2).toUpperCase() : activeConv?.id?.substring(0, 4) || "U"}
+                          photoUrl={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv?.photoUrl : undefined}
+                          fallback={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv.displayName.substring(0, 2).toUpperCase() : "?"}
                           className="w-32 h-32 rounded-full shadow-xl mb-6 text-2xl"
                         />
                         <h1 className="text-3xl font-medium flex items-center justify-center gap-2">
-                          {activeConv?.displayName || "Unknown User"}
+                          {activeConv?.displayName || "Unknown"}
                         </h1>
                       </div>
 
@@ -1892,6 +2335,33 @@ export default function ChatLayout({
                   Messages are End-to-end encrypted
                 </p>
               </div>
+              {!isNoteToSelf && (!activeConv?.displayName || activeConv.displayName === 'Unknown') && (
+                <div className="flex flex-col items-center justify-center mb-8 px-4">
+                  <div className="bg-neutral-800/50 p-4 rounded-2xl w-full max-w-sm border border-neutral-700 flex flex-col gap-3">
+                    <p className="text-sm text-neutral-300 text-center">This contact is not in your address book.</p>
+                    <div className="flex gap-2">
+                       <input 
+                         type="text" 
+                         value={contactNameInput}
+                         onChange={(e) => setContactNameInput(e.target.value)}
+                         placeholder="Enter contact name..."
+                         className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm outline-none text-neutral-200 focus:border-indigo-500 transition-colors"
+                       />
+                       <button 
+                         onClick={() => {
+                            if (contactNameInput.trim() && onSaveContact && activeConv) {
+                               onSaveContact(activeConv.id, contactNameInput.trim());
+                               setContactNameInput("");
+                            }
+                         }}
+                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white text-sm font-medium transition-colors"
+                       >
+                         Save
+                       </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {isNoteToSelf && (
                 <div className="flex flex-col items-center justify-center my-8 text-center px-4">
@@ -1916,12 +2386,64 @@ export default function ChatLayout({
                 return (
                   <div
                     key={msg.id}
-                    className={`flex flex-col ${msg.isSelf ? "items-end" : "items-start"}`}
+                    id={`msg-${msg.id}`}
+                    className={`relative w-full mb-1 flex items-center overflow-visible transition-colors duration-1000 ${highlightMsgId === msg.id ? 'bg-indigo-900/40 rounded-lg' : ''}`}
                   >
-                    
-                    <div
-                      className={`max-w-[75%] rounded-2xl px-3 py-1.5 ${msg.isSelf ? "bg-indigo-600 text-white rounded-tr-sm" : "bg-neutral-800 text-neutral-100 rounded-tl-sm"}`}
+                    <div className="absolute left-4 opacity-0 text-neutral-400 transition-opacity flex items-center z-0" id={`reply-icon-${msg.id}`}>
+                       <Reply className="w-5 h-5" />
+                    </div>
+
+                    <motion.div
+                      drag="x"
+                      dragConstraints={{ left: 0, right: 0 }}
+                      dragElastic={{ left: 0, right: 0.15 }}
+                      onDrag={(e, info) => {
+                        const icon = document.getElementById(`reply-icon-${msg.id}`);
+                        if (icon) {
+                          const progress = Math.min(Math.max(info.offset.x / 50, 0), 1);
+                          icon.style.opacity = progress.toString();
+                          if (progress === 1) {
+                            icon.classList.add('text-indigo-400');
+                            icon.classList.remove('text-neutral-400');
+                          } else {
+                            icon.classList.remove('text-indigo-400');
+                            icon.classList.add('text-neutral-400');
+                          }
+                        }
+                      }}
+                      onDragEnd={(e, info) => {
+                        const icon = document.getElementById(`reply-icon-${msg.id}`);
+                        if (icon) {
+                          icon.style.opacity = '0';
+                          icon.classList.remove('text-indigo-400');
+                          icon.classList.add('text-neutral-400');
+                        }
+                        if (info.offset.x > 50) {
+                          setReplyingTo(msg);
+                        }
+                      }}
+                      className={`flex flex-col w-full z-10 ${msg.isSelf ? "items-end" : "items-start"}`}
                     >
+                      <div className={`flex items-center gap-2 max-w-[90%] ${msg.isSelf ? "flex-row-reverse" : "flex-row"}`}>
+                      <div
+                        className={`rounded-2xl px-3 py-1.5 ${msg.isSelf ? "bg-indigo-600 text-white rounded-tr-sm" : "bg-neutral-800 text-neutral-100 rounded-tl-sm"}`}
+                      >
+                        {msg.replyTo && (
+                          <div 
+                            className="mb-1.5 bg-black/20 rounded-lg p-2 border-l-2 border-indigo-400 text-sm flex flex-col gap-0.5 cursor-pointer hover:bg-black/30 transition-colors"
+                            onClick={() => {
+                              const el = document.getElementById(`msg-${msg.replyToId}`);
+                              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }}
+                          >
+                            <span className="font-semibold text-indigo-300 text-[11px] leading-tight truncate">
+                              {msg.replyTo.isSelf ? "You" : (msg.replyTo.senderName || "Unknown")}
+                            </span>
+                            <span className={`truncate text-[12px] opacity-90 ${msg.isSelf ? 'text-indigo-100' : 'text-neutral-300'}`}>
+                              {msg.replyTo.text || "Attachment"}
+                            </span>
+                          </div>
+                        )}
                       {msg.isViewOnce ? (
                         <div className="flex flex-wrap items-end min-w-0 min-h-0 gap-x-3 gap-y-1">
                           <ViewOnceMessage msg={msg} onViewed={() => {
@@ -2016,6 +2538,8 @@ export default function ChatLayout({
                         </>
                       )}
                     </div>
+                      </div>
+                    </motion.div>
                   </div>
                 );
               })}
@@ -2036,21 +2560,57 @@ export default function ChatLayout({
               </div>
             )}
 
+            
+            {replyingTo && (
+              <div className="px-4 py-2 bg-neutral-900 border-t border-neutral-800 flex items-center justify-between z-20 relative">
+                <div className="flex-1 bg-neutral-800/50 rounded-lg p-2 border-l-2 border-indigo-500 relative min-w-0">
+                  <div className="flex flex-col gap-0.5 max-w-full">
+                    <span className="text-xs font-semibold text-indigo-400 truncate">
+                      Replying to {replyingTo.isSelf ? "yourself" : (activeConv?.displayName || "Unknown")}
+                    </span>
+                    <span className="text-sm text-neutral-300 truncate">
+                      {(() => {
+  if (replyingTo.decryptedText) return replyingTo.decryptedText;
+  if (replyingTo.attachmentId) {
+    if (replyingTo.isViewOnce) return "💣 View once message";
+    const mime = (replyingTo.decryptionKey || "").split("|")[1] || "";
+    if (mime.startsWith("audio/")) return "🎤 Voice message";
+    if (mime.startsWith("image/")) return "📷 Photo";
+    if (mime.startsWith("video/")) return "🎥 Video";
+    return "📎 Attachment";
+  }
+  return "";
+})()}
+                    </span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setReplyingTo(null)} 
+                  className="p-2 text-neutral-400 hover:text-neutral-200 transition-colors shrink-0 ml-2"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            )}
+            
             {/* Input */}
             <div className="px-2 md:px-4 py-2 md:py-3 bg-neutral-900 relative z-20">
               {scheduleOpen && (
-                <div className="absolute bottom-[calc(100%+8px)] right-4 bg-neutral-800 p-3 rounded-2xl border border-neutral-700 shadow-xl mb-0 w-auto flex flex-col gap-2 z-50 origin-bottom-right">
-                  <span className="text-sm text-neutral-300 font-medium px-1">Schedule Message</span>
-                  <input
-                    type="datetime-local"
-                    value={scheduleTime}
-                    onChange={(e) => setScheduleTime(e.target.value)}
-                    className="bg-neutral-900 text-neutral-200 text-sm p-2 rounded-lg border border-neutral-700 focus:outline-none focus:border-indigo-500 w-full"
-                  />
+                <div className="absolute bottom-[calc(100%+8px)] right-4 bg-neutral-900 p-4 rounded-2xl border border-neutral-800 shadow-2xl mb-0 w-72 flex flex-col gap-3 z-50 origin-bottom-right">
+                  <span className="text-sm text-neutral-100 font-medium px-1">Schedule Message</span>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="datetime-local"
+                      value={scheduleTime}
+                      onChange={(e) => setScheduleTime(e.target.value)}
+                      className="bg-neutral-800 text-neutral-200 text-sm p-2.5 rounded-xl border border-neutral-700 focus:outline-none focus:border-indigo-500 w-full"
+                      style={{ colorScheme: 'dark' }}
+                    />
+                  </div>
                   <div className="flex justify-end gap-2 mt-1">
                     <button
                       onClick={() => setScheduleOpen(false)}
-                      className="px-3 py-1.5 text-sm text-neutral-400 hover:text-neutral-200"
+                      className="px-3 py-2 text-sm font-medium text-neutral-400 hover:text-neutral-200 bg-neutral-800 hover:bg-neutral-700 rounded-xl transition-colors"
                     >
                       Cancel
                     </button>
@@ -2084,7 +2644,38 @@ export default function ChatLayout({
                 </div>
               )}
 
-              <div className="flex items-end gap-1.5 md:gap-2">
+              <div className="flex items-end gap-1.5 md:gap-2 relative">
+                
+                <AnimatePresence>
+                  {isRecording && (
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="absolute inset-0 z-30 bg-neutral-900 flex items-center justify-between pr-0 rounded-3xl"
+                    >
+                       <button onClick={cancelVoiceRecording} className="p-3 text-neutral-400 hover:text-red-400 hover:bg-red-500/10 rounded-full transition-colors ml-1" title="Cancel">
+                          <Trash2 className="w-5 h-5" />
+                       </button>
+                       <div className="flex-1 flex items-center justify-center gap-1.5 px-2">
+                          <div className="flex items-center justify-center gap-1.5 h-8">
+                            <div className="w-1.5 bg-red-500/80 rounded-full animate-waveform h-4" />
+                            <div className="w-1.5 bg-red-500/90 rounded-full animate-waveform h-6" style={{ animationDelay: '0.2s' }} />
+                            <div className="w-1.5 bg-red-500 rounded-full animate-waveform h-8" style={{ animationDelay: '0.4s' }} />
+                            <div className="w-1.5 bg-red-500/90 rounded-full animate-waveform h-5" style={{ animationDelay: '0.6s' }} />
+                            <div className="w-1.5 bg-red-500/80 rounded-full animate-waveform h-3" style={{ animationDelay: '0.8s' }} />
+                          </div>
+                          <span className="ml-2 text-red-500 font-medium font-mono text-sm tracking-widest">
+                            {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}
+                          </span>
+                       </div>
+                       <button onClick={stopVoiceRecordingAndSend} className="w-[46px] h-[46px] shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 z-40">
+                          <Send className="w-5 h-5 -ml-0.5" />
+                       </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <input
                   type="file"
                   className="hidden"
@@ -2108,8 +2699,7 @@ export default function ChatLayout({
                   <textarea
                     ref={textareaRef}
                     rows={1}
-                    value={isRecording ? "Recording voice memo..." : text}
-                    disabled={isRecording}
+                    value={text}
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
@@ -2118,7 +2708,7 @@ export default function ChatLayout({
                       }
                     }}
                     placeholder="Message"
-                    className="flex-1 bg-transparent text-neutral-100 placeholder-neutral-500 resize-none py-2.5 px-2 focus:outline-none disabled:opacity-50 min-h-[44px] rounded-3xl overflow-y-auto leading-tight"
+                    className="flex-1 bg-transparent text-neutral-100 placeholder-neutral-500 resize-none py-2.5 px-2 focus:outline-none min-h-[44px] rounded-3xl overflow-y-auto leading-tight"
                   />
                   
                   <div className="relative w-9 shrink-0 h-[44px] self-end rounded-full overflow-hidden mr-1">
@@ -2185,16 +2775,6 @@ export default function ChatLayout({
                   >
                     <Send className="w-5 h-5 -ml-0.5" />
                   </button>
-
-                  {/* Record active button */}
-                  <button
-                    onClick={stopVoiceRecording}
-                    className={`absolute inset-0 bg-red-600 hover:bg-red-500 text-white rounded-full flex items-center justify-center shadow-md focus:outline-none transition-all duration-300 transform ${
-                        isRecording ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-50 pointer-events-none"
-                    }`}
-                  >
-                    <Square className="w-4 h-4 fill-current" />
-                  </button>
                 </div>
               </div>
             </div>
@@ -2248,18 +2828,54 @@ export default function ChatLayout({
               
               <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-neutral-950 relative">
                 {scheduledMessages.map((msg) => (
-                  <div key={msg.id} className="flex flex-col items-end">
-                    <div className="max-w-[75%] rounded-2xl px-3 py-1.5 bg-indigo-600 text-white rounded-tr-sm relative group shadow-sm">
-                      <div className="whitespace-pre-wrap break-words min-w-0 text-[15px] leading-snug">
-                        {msg.decryptedText}
+                  <div key={msg.id} className="flex flex-col items-end w-full relative">
+                    <div className="flex items-center gap-2 max-w-[85%] relative">
+                      <div className="relative">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenScheduleMenuId(openScheduleMenuId === msg.id ? null : msg.id);
+                          }}
+                          className="p-2 rounded-full bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
+                        >
+                          <Calendar className="w-4 h-4" />
+                        </button>
+                        <AnimatePresence>
+                          {openScheduleMenuId === msg.id && (
+                             <motion.div 
+                               initial={{ opacity: 0, scale: 0.95 }}
+                               animate={{ opacity: 1, scale: 1 }}
+                               exit={{ opacity: 0, scale: 0.95 }}
+                               transition={{ duration: 0.1 }}
+                               className="absolute right-0 bottom-full mb-2 w-48 bg-neutral-100 dark:bg-neutral-800 rounded-2xl shadow-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden z-[100]"
+                             >
+                                <button className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
+                                   <Calendar className="w-4 h-4" /> Reschedule
+                                </button>
+                                <button className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
+                                   <Send className="w-4 h-4" /> Send now
+                                </button>
+                                <button className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
+                                   <Copy className="w-4 h-4" /> Copy
+                                </button>
+                                <button className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-red-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
+                                   <Trash2 className="w-4 h-4" /> Delete
+                                </button>
+                             </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
-                      <div className="flex items-center justify-end gap-1 mt-1 opacity-70">
-                        {msg.scheduledTime && (
-                          <span className="text-[11px] font-medium flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {new Date(msg.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        )}
+                      <div className="rounded-2xl px-3 py-1.5 bg-pink-600 text-white rounded-tr-sm relative group shadow-sm">
+                        <div className="whitespace-pre-wrap break-words min-w-0 text-[15px] leading-snug">
+                          {msg.decryptedText}
+                        </div>
+                        <div className="flex items-center justify-end gap-1 mt-1 opacity-70">
+                          {msg.scheduledTime && (
+                            <span className="text-[11px] font-medium flex items-center gap-1">
+                              {new Date(msg.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

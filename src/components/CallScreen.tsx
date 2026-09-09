@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Camera } from "lucide-react";
+import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Camera, Volume2, Smartphone } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { DecryptedAvatar } from "./DecryptedAvatar";
 
@@ -48,6 +48,49 @@ export function CallScreen({
 }: CallScreenProps) {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(false); // Default to false (earpiece/default)
+  const [hasAudioOutputConfig, setHasAudioOutputConfig] = useState(false);
+  
+  useEffect(() => {
+    if ('setSinkId' in HTMLMediaElement.prototype) {
+      setHasAudioOutputConfig(true);
+    }
+    // For video calls, or on desktop/laptops, default to speaker
+    if (isVideo || window.innerWidth > 768) {
+      setIsSpeakerOn(true);
+    }
+  }, [isVideo]);
+
+  const toggleSpeaker = async () => {
+    const newState = !isSpeakerOn;
+    setIsSpeakerOn(newState);
+    
+    try {
+      if ('setSinkId' in HTMLMediaElement.prototype) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+        
+        // Try to find a speakerphone device or default device
+        let targetDevice = '';
+        if (newState) {
+          const speaker = audioOutputs.find(d => d.label.toLowerCase().includes('speaker'));
+          targetDevice = speaker ? speaker.deviceId : (audioOutputs[0]?.deviceId || '');
+        } else {
+          const earpiece = audioOutputs.find(d => d.label.toLowerCase().includes('earpiece') || d.label.toLowerCase().includes('handset'));
+          targetDevice = earpiece ? earpiece.deviceId : 'default';
+        }
+        
+        const mediaElement = remoteVideoRef.current || remoteAudioRef.current;
+        if (mediaElement && typeof (mediaElement as any).setSinkId === 'function') {
+          await (mediaElement as any).setSinkId(targetDevice);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not set audio output device", err);
+    }
+  };
+
 
   useEffect(() => {
     if (localVideoRef.current && localStream) {
@@ -56,10 +99,35 @@ export function CallScreen({
   }, [localStream, isVideoOff]);
 
   useEffect(() => {
+    const applySinkId = async (element: HTMLMediaElement) => {
+      try {
+        if ('setSinkId' in element) {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+          let targetDevice = '';
+          if (isSpeakerOn) {
+            const speaker = audioOutputs.find(d => d.label.toLowerCase().includes('speaker'));
+            targetDevice = speaker ? speaker.deviceId : (audioOutputs[0]?.deviceId || '');
+          } else {
+            const earpiece = audioOutputs.find(d => d.label.toLowerCase().includes('earpiece') || d.label.toLowerCase().includes('handset'));
+            targetDevice = earpiece ? earpiece.deviceId : 'default';
+          }
+          await (element as any).setSinkId(targetDevice);
+        }
+      } catch (e) {
+        console.warn("Could not set initial audio output device", e);
+      }
+    };
+
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
+      applySinkId(remoteVideoRef.current);
     }
-  }, [remoteStream, callState]);
+    if (remoteAudioRef.current && remoteStream) {
+      remoteAudioRef.current.srcObject = remoteStream;
+      applySinkId(remoteAudioRef.current);
+    }
+  }, [remoteStream, callState, showVideo, isSpeakerOn]);
 
   const showVideo = isVideo && callState === "connected" && !isVideoOff;
 
@@ -76,12 +144,14 @@ export function CallScreen({
 
       {showVideo && remoteStream ? (
         <video 
-          ref={remoteVideoRef} 
-          autoPlay 
-          playsInline 
-          className="absolute inset-0 w-full h-full object-cover z-0" 
-        />
-      ) : null}
+           ref={remoteVideoRef} 
+           autoPlay 
+           playsInline 
+           className="absolute inset-0 w-full h-full object-cover z-0" 
+         />
+      ) : (
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      )}
 
       {/* Header Info */}
       <div className="z-10 w-full p-12 flex flex-col items-center mt-8">
@@ -131,6 +201,16 @@ export function CallScreen({
       <div className="z-10 w-full p-12 flex items-center justify-center gap-8 mb-8">
         {(callState === "calling" || callState === "connected" || callState === "connecting") && (
           <>
+            {hasAudioOutputConfig && !isVideo && (
+              <button 
+                onClick={toggleSpeaker}
+                className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
+                  isSpeakerOn ? "bg-white text-black" : "bg-neutral-800/80 text-white hover:bg-neutral-700 backdrop-blur-md border border-neutral-700"
+                }`}
+              >
+                {isSpeakerOn ? <Volume2 className="w-6 h-6" /> : <Smartphone className="w-6 h-6" />}
+              </button>
+            )}
             <button 
               onClick={onToggleMute}
               className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
