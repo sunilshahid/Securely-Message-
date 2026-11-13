@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Settings, Key, Zap, CheckCircle2, User, Phone, Check, Shield, Eye, EyeOff } from 'lucide-react';
 import { generateSignalIdentity, exportIdentity, importIdentity, sha256Hex, encryptIdentityWithPassword, decryptIdentityWithPassword, bufferToBase64 } from '../crypto';
 
@@ -7,6 +7,9 @@ export type SignalIdentity = {
   identityKeyPair: any;
   signedPreKey: any;
   preKeys: any[];
+  pqIdentityKeyPair?: any;
+  pqSignedPreKey?: any;
+  pqPreKeys?: any[];
   securelyId: string;
   displayName?: string;
   username?: string;
@@ -27,14 +30,23 @@ export default function Onboarding({ onIdentityCreated }: OnboardingProps) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const timeoutRef = useRef<any[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timeoutRef.current.forEach((t) => clearTimeout(t));
+      timeoutRef.current = [];
+    };
+  }, []);
 
   const handleSignup = async () => {
-    if (!password) {
-      setErrorMsg("Password is required to secure your keys.");
+    if (!password || password.length < 6) {
+      setErrorMsg("Password must be at least 6 characters to secure your keys.");
       return;
     }
-    if (!username || username.trim() === "" || username.includes(" ")) {
-      setErrorMsg("Username is required and cannot contain spaces.");
+    const cleanUsername = username.trim().replace(/^@+/, '').trim();
+    if (!cleanUsername || !/^[a-zA-Z0-9_.-]{3,30}$/.test(cleanUsername)) {
+      setErrorMsg("Username must be 3-30 characters and only contain letters, numbers, underscores, periods, and hyphens.");
       return;
     }
     setStep('generating');
@@ -44,7 +56,7 @@ export default function Onboarding({ onIdentityCreated }: OnboardingProps) {
       const identityWithProfile: SignalIdentity = {
         ...identity,
         displayName: displayName.trim() || undefined,
-        username: username.trim() || undefined,
+        username: cleanUsername,
         phoneNumber: phoneNumber.trim() || undefined,
       };
       
@@ -74,23 +86,43 @@ export default function Onboarding({ onIdentityCreated }: OnboardingProps) {
           preKeys: identityWithProfile.preKeys.map(pk => ({
             keyId: pk.keyId,
             publicKey: bufferToBase64(pk.keyPair.pubKey)
-          }))
+          })),
+          pqIdentityKey: identityWithProfile.pqIdentityKeyPair ? bufferToBase64(identityWithProfile.pqIdentityKeyPair.publicKey || identityWithProfile.pqIdentityKeyPair.pubKey) : undefined,
+          pqSignedPreKey: identityWithProfile.pqSignedPreKey ? {
+            keyId: identityWithProfile.pqSignedPreKey.keyId,
+            publicKey: bufferToBase64(identityWithProfile.pqSignedPreKey.keyPair.publicKey || identityWithProfile.pqSignedPreKey.keyPair.pubKey),
+            signature: identityWithProfile.pqSignedPreKey.signature ? bufferToBase64(identityWithProfile.pqSignedPreKey.signature) : ''
+          } : undefined,
+          pqPreKeys: identityWithProfile.pqPreKeys ? identityWithProfile.pqPreKeys.map((pk: any) => ({
+            keyId: pk.keyId,
+            publicKey: bufferToBase64(pk.keyPair.publicKey || pk.keyPair.pubKey)
+          })) : []
         })
       });
       
       if (!res.ok) {
         let msg = 'Signup failed';
-        try { const errData = await res.json(); if (errData.error) msg = errData.error; } catch(e) {}
+        try {
+          const errData = await res.json();
+          if (errData.error) msg = errData.error;
+        } catch (_) {
+          try {
+            const txt = await res.text();
+            if (txt) msg = `Signup failed: ${txt.slice(0, 120)}`;
+          } catch (__) {}
+        }
         throw new Error(msg);
       }
       const data = await res.json();
       
-      setTimeout(() => {
+      const t1 = setTimeout(() => {
         setStep('success');
-        setTimeout(() => {
+        const t2 = setTimeout(() => {
           onIdentityCreated(identityWithProfile);
         }, 1200);
+        timeoutRef.current.push(t2);
       }, 1000);
+      timeoutRef.current.push(t1);
     } catch (e: any) {
       console.error(e);
       setErrorMsg(e.message || "An error occurred");
@@ -123,11 +155,16 @@ export default function Onboarding({ onIdentityCreated }: OnboardingProps) {
       const restoredIdentity = importIdentity(decryptedJson);
       
       setStep('success');
-      setTimeout(() => {
+      const tLogin = setTimeout(() => {
         onIdentityCreated(restoredIdentity);
       }, 1200);
+      timeoutRef.current.push(tLogin);
     } catch(e: any) {
-       setErrorMsg(e.message || "Invalid credentials");
+       if (e?.name === "OperationError" || e?.message?.toLowerCase().includes("decrypt") || e?.message?.toLowerCase().includes("operation-specific")) {
+         setErrorMsg("Incorrect password. Could not decrypt identity.");
+       } else {
+         setErrorMsg(e?.message || "Invalid credentials");
+       }
        setStep('login_profile');
     }
   };
@@ -297,7 +334,7 @@ export default function Onboarding({ onIdentityCreated }: OnboardingProps) {
           <div className="py-8 flex flex-col items-center">
             <div className="w-10 h-10 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mb-4"></div>
             <p className="text-neutral-400">Processing cryptographic identity...</p>
-            <p className="text-xs text-neutral-500 mt-2">Curve: P-256 (ECDH) + PBKDF2</p>
+            <p className="text-xs text-indigo-400 font-mono mt-2">Signal PQXDH (ML-KEM-768 + Curve25519) + Double Ratchet</p>
           </div>
         )}
 

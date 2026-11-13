@@ -17,35 +17,57 @@ import {
   Bell,
   X
 ,   PhoneIncoming,   PhoneOutgoing,   PhoneMissed,   PhoneOff} from "lucide-react";
-import { Conversation } from "../types";
+import { Conversation, CallLog } from "../types";
 import { motion, AnimatePresence } from "framer-motion";
 import { DecryptedAvatar } from "./DecryptedAvatar";
 
 type ViewState = "main" | "new" | "schedule" | "link" | "keypad";
+
+function formatCallTime(isoOrDate: string | Date) {
+  const d = new Date(isoOrDate);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const yesterday = new Date();
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (isToday) return `Today, ${timeStr}`;
+  if (isYesterday) return `Yesterday, ${timeStr}`;
+  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
+}
+
+function formatCallDuration(seconds?: number) {
+  if (!seconds || seconds <= 0) return null;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m === 0) return `${s}s`;
+  return `${m}m ${s}s`;
+}
 
 export function CallsTab({
   conversations,
   onStartCall,
   onClose,
   onMenuClick,
+  callLogs = [],
+  onClearCallLogs,
 }: {
   conversations: Conversation[];
   onStartCall: (userId: string, isVideo: boolean) => void;
   onClose?: () => void;
   onMenuClick?: () => void;
+  callLogs?: CallLog[];
+  onClearCallLogs?: () => void;
 }) {
   const [view, setView] = useState<ViewState>("main");
   const [searchActive, setSearchActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [newCallSearch, setNewCallSearch] = useState("");
+  const [dialedNumber, setDialedNumber] = useState("");
   
-  // Mock recent calls
-  const recentCalls = conversations.slice(0, 5).map((c, i) => ({
-    id: i.toString(),
-    userId: c.id,
-    type: i % 4 === 0 ? "missed" : i % 4 === 1 ? "incoming" : i % 4 === 2 ? "outgoing" : "rejected",
-    timestamp: new Date(Date.now() - i * 3600000 * 5),
-    isVideo: i % 4 === 0
-  }));
+  // Use real call logs if available, otherwise fallback to empty list
+  const recentCalls = callLogs;
 
   if (view === "main") {
     return (
@@ -86,54 +108,108 @@ export function CallsTab({
             <ActionCircle icon={Heart} label="Favorites" onClick={() => {}} />
           </div>
 
-          <div className="px-4 py-2 text-sm font-semibold text-neutral-400">
-            Recent
+          <div className="flex items-center justify-between px-4 py-2 text-sm font-semibold text-neutral-400">
+            <span>Recent</span>
+            {recentCalls.length > 0 && onClearCallLogs && (
+              <button 
+                onClick={onClearCallLogs}
+                className="text-xs font-normal text-neutral-500 hover:text-red-400 transition-colors"
+              >
+                Clear history
+              </button>
+            )}
           </div>
 
           <div className="flex flex-col">
-            {recentCalls.map((call) => {
-              const conv = conversations.find(c => c.id === call.userId);
-              if (!conv) return null;
-              
-              const nameMatches = (conv.displayName || "").toLowerCase().includes(searchQuery.toLowerCase());
-              const idMatches = conv.id.toLowerCase().includes(searchQuery.toLowerCase());
-              if (searchQuery.trim() !== "" && !nameMatches && !idMatches) return null;
-              return (
-                <div key={call.id} className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900 cursor-pointer transition-colors" >
-                  <div className="w-12 h-12 relative flex-shrink-0">
-                    <DecryptedAvatar photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined} fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"} className="w-full h-full text-lg rounded-full shadow-sm object-cover" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className={"font-medium text-lg truncate " + ((call.type === 'missed' || call.type === 'rejected') ? "text-red-500" : "text-neutral-100")}>
-                      {conv.displayName || conv.id}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-neutral-400 text-sm mt-0.5">
-                      {call.type === "outgoing" && <ArrowUpRight className="w-4 h-4 text-green-500" />}
-                      {call.type === "incoming" && <ArrowDownLeft className="w-4 h-4 text-green-500" />}
-                      {call.type === "missed" && <PhoneMissed className="w-4 h-4 text-red-500" />}
-                      {call.type === "rejected" && <PhoneOff className="w-4 h-4 text-red-500" />}
-                      <span>
-                        {call.timestamp.toLocaleDateString([], { weekday: 'long' })}, {call.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 text-neutral-400 shrink-0">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onStartCall(call.userId, false); }} 
-                      className="p-2 hover:bg-neutral-800 rounded-full transition-colors"
-                    >
-                      <Phone className="w-5 h-5 text-neutral-300" />
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onStartCall(call.userId, true); }} 
-                      className="p-2 hover:bg-neutral-800 rounded-full transition-colors"
-                    >
-                      <Video className="w-5 h-5 text-neutral-300" />
-                    </button>
-                  </div>
+            {recentCalls.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-12 text-center text-neutral-500">
+                <div className="w-16 h-16 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-3">
+                  <Phone className="w-7 h-7 text-neutral-600" />
                 </div>
-              );
-            })}
+                <p className="text-base font-medium text-neutral-300 mb-1">No recent calls</p>
+                <p className="text-xs text-neutral-500 max-w-xs">
+                  Audio and video calls with your end-to-end encrypted contacts will appear here.
+                </p>
+              </div>
+            ) : (
+              recentCalls.map((call) => {
+                const conv = conversations.find(c => c.id === call.userId);
+                const displayName = conv?.displayName || call.displayName || call.userId;
+                const photoUrl = conv?.photoUrl || call.photoUrl;
+                
+                const nameMatches = displayName.toLowerCase().includes(searchQuery.toLowerCase());
+                const idMatches = call.userId.toLowerCase().includes(searchQuery.toLowerCase());
+                if (searchQuery.trim() !== "" && !nameMatches && !idMatches) return null;
+
+                const isMissed = call.type === 'missed';
+                const isRejected = call.type === 'rejected';
+
+                return (
+                  <div key={call.id} className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900/70 cursor-pointer transition-colors border-b border-neutral-900/60" onClick={() => onStartCall(call.userId, call.isVideo)}>
+                    <div className="w-12 h-12 relative flex-shrink-0">
+                      <DecryptedAvatar photoUrl={photoUrl} fallback={displayName.substring(0, 2).toUpperCase()} className="w-full h-full text-lg rounded-full shadow-sm object-cover" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className={`font-medium text-base truncate ${isMissed ? "text-rose-400 font-semibold" : isRejected ? "text-rose-300/90" : "text-neutral-100"}`}>
+                        {displayName}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-neutral-400 text-xs mt-0.5">
+                        {call.type === "outgoing" && (
+                          <span className="flex items-center gap-1 text-emerald-400">
+                            <PhoneOutgoing className="w-3.5 h-3.5" />
+                            <span>Outgoing</span>
+                          </span>
+                        )}
+                        {call.type === "incoming" && (
+                          <span className="flex items-center gap-1 text-emerald-400">
+                            <PhoneIncoming className="w-3.5 h-3.5" />
+                            <span>Incoming</span>
+                          </span>
+                        )}
+                        {call.type === "missed" && (
+                          <span className="flex items-center gap-1 text-rose-400 font-medium">
+                            <PhoneMissed className="w-3.5 h-3.5" />
+                            <span>Missed</span>
+                          </span>
+                        )}
+                        {call.type === "rejected" && (
+                          <span className="flex items-center gap-1 text-rose-400 font-medium">
+                            <PhoneOff className="w-3.5 h-3.5" />
+                            <span>Declined</span>
+                          </span>
+                        )}
+
+                        {call.isVideo && (
+                          <Video className="w-3.5 h-3.5 text-neutral-400 ml-0.5" />
+                        )}
+
+                        {call.duration ? (
+                          <span className="text-neutral-500 font-mono text-[11px]">• {formatCallDuration(call.duration)}</span>
+                        ) : null}
+
+                        <span className="text-neutral-500">• {formatCallTime(call.timestamp)}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 text-neutral-400 shrink-0">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onStartCall(call.userId, false); }} 
+                        className="p-2.5 hover:bg-neutral-800 rounded-full transition-colors text-neutral-300 hover:text-white"
+                        title="Voice Call"
+                      >
+                        <Phone className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onStartCall(call.userId, true); }} 
+                        className="p-2.5 hover:bg-neutral-800 rounded-full transition-colors text-neutral-300 hover:text-white"
+                        title="Video Call"
+                      >
+                        <Video className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -169,6 +245,8 @@ export function CallsTab({
             <Search className="w-5 h-5 absolute left-3 top-2.5 text-neutral-500 pointer-events-none" />
             <input
               type="text"
+              value={newCallSearch}
+              onChange={(e) => setNewCallSearch(e.target.value)}
               placeholder="Search by Username..."
               className="w-full bg-neutral-900 text-neutral-200 text-[15px] rounded-full pl-10 pr-4 py-2 outline-none focus:ring-1 focus:ring-neutral-700 transition-all placeholder-neutral-500 border border-neutral-800"
             />
@@ -192,7 +270,7 @@ export function CallsTab({
             Frequently contacted
           </div>
           <div className="flex flex-col">
-            {conversations.map((conv) => (
+            {conversations.filter(c => !newCallSearch.trim() || (c.displayName || "").toLowerCase().includes(newCallSearch.toLowerCase()) || c.id.toLowerCase().includes(newCallSearch.toLowerCase())).map((conv) => (
               <div key={conv.id} className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900 cursor-pointer transition-colors" onClick={() => onStartCall(conv.id, false)}>
                 <div className="w-12 h-12 relative flex-shrink-0">
                   <DecryptedAvatar photoUrl={conv.displayName && conv.displayName !== 'Unknown' ? conv.photoUrl : undefined} fallback={conv.displayName && conv.displayName !== 'Unknown' ? conv.displayName.substring(0, 2).toUpperCase() : "?"} className="w-full h-full text-lg rounded-full shadow-sm object-cover" />
@@ -341,25 +419,29 @@ export function CallsTab({
         </div>
         
         <div className="flex-1 flex flex-col justify-end items-center pb-10">
-           <div className="text-3xl font-medium mb-8 min-h-10 text-center tracking-widest text-indigo-200">
+           <div className="text-3xl font-medium mb-8 min-h-10 text-center tracking-widest text-indigo-200 flex items-center justify-center gap-3">
+             <span>{dialedNumber}</span>
+             {dialedNumber.length > 0 && (
+               <button onClick={() => setDialedNumber(p => p.slice(0, -1))} className="text-neutral-500 hover:text-neutral-300 text-sm p-1">⌫</button>
+             )}
            </div>
            
            <div className="grid grid-cols-3 gap-6 mb-8 px-8 w-full max-w-sm">
-             <DialButton number="1" />
-             <DialButton number="2" letters="ABC" />
-             <DialButton number="3" letters="DEF" />
-             <DialButton number="4" letters="GHI" />
-             <DialButton number="5" letters="JKL" />
-             <DialButton number="6" letters="MNO" />
-             <DialButton number="7" letters="PQRS" />
-             <DialButton number="8" letters="TUV" />
-             <DialButton number="9" letters="WXYZ" />
-             <DialButton number="*" textLg />
-             <DialButton number="0" letters="+" />
-             <DialButton number="#" textLg />
+             <DialButton number="1" onClick={() => setDialedNumber(p => p + "1")} />
+             <DialButton number="2" letters="ABC" onClick={() => setDialedNumber(p => p + "2")} />
+             <DialButton number="3" letters="DEF" onClick={() => setDialedNumber(p => p + "3")} />
+             <DialButton number="4" letters="GHI" onClick={() => setDialedNumber(p => p + "4")} />
+             <DialButton number="5" letters="JKL" onClick={() => setDialedNumber(p => p + "5")} />
+             <DialButton number="6" letters="MNO" onClick={() => setDialedNumber(p => p + "6")} />
+             <DialButton number="7" letters="PQRS" onClick={() => setDialedNumber(p => p + "7")} />
+             <DialButton number="8" letters="TUV" onClick={() => setDialedNumber(p => p + "8")} />
+             <DialButton number="9" letters="WXYZ" onClick={() => setDialedNumber(p => p + "9")} />
+             <DialButton number="*" textLg onClick={() => setDialedNumber(p => p + "*")} />
+             <DialButton number="0" letters="+" onClick={() => setDialedNumber(p => p + "0")} />
+             <DialButton number="#" textLg onClick={() => setDialedNumber(p => p + "#")} />
            </div>
 
-           <button className="w-16 h-16 bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-400 transition-colors">
+           <button onClick={() => { if (dialedNumber.trim()) onStartCall(dialedNumber.trim(), false); }} className="w-16 h-16 bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-400 transition-colors">
              <Phone className="w-8 h-8 fill-current" />
            </button>
         </div>
@@ -395,9 +477,9 @@ function ActionListItem({ icon: Icon, label, onClick, rightIcon: RightIcon }: { 
   );
 }
 
-function DialButton({ number, letters, textLg }: { number: string, letters?: string, textLg?: boolean }) {
+function DialButton({ number, letters, textLg, onClick }: { number: string, letters?: string, textLg?: boolean, onClick?: () => void }) {
   return (
-    <button className="flex flex-col items-center justify-center w-20 h-20 rounded-full bg-neutral-900 hover:bg-neutral-800 transition-colors active:scale-95">
+    <button onClick={onClick} className="flex flex-col items-center justify-center w-20 h-20 rounded-full bg-neutral-900 hover:bg-neutral-800 transition-colors active:scale-95">
       <span className={`text-4xl text-neutral-100 font-light ${textLg ? 'translate-y-2' : ''}`}>{number}</span>
       {letters && <span className="text-[10px] text-neutral-500 font-semibold tracking-widest mt-0.5">{letters}</span>}
     </button>

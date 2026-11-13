@@ -4,6 +4,7 @@ import {
   KeyPairType,
   SessionRecordType,
 } from '@privacyresearch/libsignal-protocol-typescript';
+import { PQKeyPair, PQSessionState } from './types';
 
 export function arrayBufferToString(buffer: ArrayBuffer): string {
   const arr = new Uint8Array(buffer);
@@ -33,11 +34,31 @@ function base64ToBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary_string = atob(base64);
+  const len = binary_string.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary_string.charCodeAt(i);
+  }
+  return bytes;
+}
+
 const replacer = (key: string, value: any) => {
+  if (value instanceof Uint8Array) {
+    return { _type: 'Uint8Array', data: uint8ArrayToBase64(value) };
+  }
   if (value instanceof ArrayBuffer) {
     return { _type: 'ArrayBuffer', data: bufferToBase64(value) };
   }
-  // Handle Uint8Array and other typed arrays that have a buffer
   if (value && value.buffer instanceof ArrayBuffer && value.byteLength !== undefined) {
     return { _type: 'ArrayBuffer', data: bufferToBase64(value.buffer) };
   }
@@ -45,8 +66,13 @@ const replacer = (key: string, value: any) => {
 };
 
 const reviver = (key: string, value: any) => {
-  if (value && typeof value === 'object' && value._type === 'ArrayBuffer') {
-    return base64ToBuffer(value.data);
+  if (value && typeof value === 'object') {
+    if (value._type === 'Uint8Array') {
+      return base64ToUint8Array(value.data);
+    }
+    if (value._type === 'ArrayBuffer') {
+      return base64ToBuffer(value.data);
+    }
   }
   return value;
 };
@@ -154,9 +180,61 @@ export class SignalProtocolStore implements StorageType {
     this.save();
   }
 
+  // --- Post-Quantum (ML-KEM-768) Storage Methods ---
+
+  storePQIdentityKeyPair(keyPair: PQKeyPair): void {
+    this.p['pqIdentityKeyPair'] = keyPair;
+    this.save();
+  }
+
+  getPQIdentityKeyPair(): PQKeyPair | undefined {
+    return this.p['pqIdentityKeyPair'];
+  }
+
+  storePQPreKey(keyId: number | string, keyPair: PQKeyPair): void {
+    this.p['pqPreKey_' + keyId] = keyPair;
+    this.save();
+  }
+
+  loadPQPreKey(keyId: number | string): PQKeyPair | undefined {
+    return this.p['pqPreKey_' + keyId];
+  }
+
+  removePQPreKey(keyId: number | string): void {
+    delete this.p['pqPreKey_' + keyId];
+    this.save();
+  }
+
+  storePQSignedPreKey(keyId: number | string, keyPair: PQKeyPair): void {
+    this.p['pqSignedPreKey_' + keyId] = keyPair;
+    this.save();
+  }
+
+  loadPQSignedPreKey(keyId: number | string): PQKeyPair | undefined {
+    return this.p['pqSignedPreKey_' + keyId];
+  }
+
+  storePQSession(peerId: string, session: PQSessionState): void {
+    this.p['pqSession_' + peerId] = session;
+    this.save();
+  }
+
+  loadPQSession(peerId: string): PQSessionState | undefined {
+    return this.p['pqSession_' + peerId];
+  }
+
+  removePQSession(peerId: string): void {
+    delete this.p['pqSession_' + peerId];
+    this.save();
+  }
+
   // Helper method to set local data directly
   put(key: string, value: any) {
     this.p[key] = value;
     this.save();
+  }
+
+  get(key: string): any {
+    return this.p[key];
   }
 }

@@ -13,38 +13,47 @@ export function DecryptedAvatar({
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!photoUrl) return;
+    if (!photoUrl) {
+      setUrl(null);
+      return;
+    }
     if (!photoUrl.includes("|")) {
       setUrl(photoUrl);
       return;
     }
     
     let active = true;
-    const [attachmentId, keyHex, mimeType] = photoUrl.split("|");
-    import("../crypto").then(({ decryptFile }) => {
-      fetch(`/api/v1/attachments/${attachmentId}`)
-        .then((res) => {
-          if (!res.ok) {
-            console.warn("Avatar attachment missing, skipping.");
-            return null;
-          }
-          return res.blob();
-        })
-        .then((blob) => {
-          if (!blob) return null;
-          return decryptFile(blob, keyHex, mimeType || "application/octet-stream");
-        })
-        .then((decryptedBlob) => {
-          if (!active || !decryptedBlob) return;
-          const objectUrl = URL.createObjectURL(decryptedBlob);
-          setUrl(objectUrl);
-        })
-        .catch(err => { if (err.message !== 'Failed to fetch') console.error(err); });
-    });
+    let createdUrl: string | null = null;
+    const [rawAttachmentId, keyHex, mimeType] = photoUrl.split("|");
+    const attachmentId = (rawAttachmentId || "").replace(/^(\/?api\/v1\/attachments\/)+/, "");
+
+    fetch(`/api/v1/attachments/${attachmentId}`)
+      .then((res) => {
+        if (!res.ok) {
+          console.warn("Avatar attachment missing, skipping.");
+          return null;
+        }
+        return res.blob();
+      })
+      .then((blob) => {
+        if (!blob) return null;
+        return decryptFile(blob, keyHex, mimeType || "application/octet-stream");
+      })
+      .then((decryptedBlob) => {
+        if (!active || !decryptedBlob) return;
+        createdUrl = URL.createObjectURL(decryptedBlob);
+        setUrl(createdUrl);
+      })
+      .catch((err) => {
+        if (err?.message !== "Failed to fetch") console.error(err);
+      });
     
     return () => {
       active = false;
-      if (url && photoUrl.includes("|")) URL.revokeObjectURL(url);
+      if (createdUrl) {
+        URL.revokeObjectURL(createdUrl);
+        createdUrl = null;
+      }
     };
   }, [photoUrl]);
 

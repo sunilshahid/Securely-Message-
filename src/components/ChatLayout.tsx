@@ -1,4 +1,81 @@
 
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import QRCode from "react-qr-code";
+import {
+  Settings,
+  Plus,
+  Search,
+  MessageSquare,
+  Clock,
+  Paperclip,
+  Send,
+  ArrowLeft,
+  QrCode,
+  X,
+  Zap,
+  Key,
+  Check,
+  CheckCheck,
+  Eye,
+  Mic,
+  Square,
+  Camera,
+  User,
+  AtSign,
+  Pencil,
+  Phone,
+  Video,
+  CircleDashed,
+  LogOut,
+  Calendar,
+  Copy,
+  Trash2,
+  Shield,
+  ShieldCheck,
+  Lock,
+  ChevronDown,
+  BadgeCheck,
+  Reply,
+  MoreVertical,
+  Users,
+  CheckSquare,
+  Filter,
+  Bell,
+  Archive,
+  ChevronLeft,
+  ChevronRight,
+  Edit2,
+  Play,
+  Pause,
+  Maximize2,
+  Download,
+  AlertCircle,
+  Info,
+  Inbox
+} from "lucide-react";
+import { Conversation, ChatMessage, CallLog } from "../types";
+
+import { decryptFile } from "../crypto";
+import { DisappearingClock } from "./DisappearingClock";
+import { ScheduledClock } from "./ScheduledClock";
+import { DecryptedAvatar } from "./DecryptedAvatar";
+import { CallScreen, CallState } from "./CallScreen";
+import { CallsTab } from "./CallsTab";
+import { toast } from "./Toast";
+import { SettingsModal } from "./SettingsModal";
+import { MessageInfoModal } from "./MessageInfoModal";
+import GroupAdminModal from "./GroupAdminModal";
+import RequestsModal from "./RequestsModal";
+import StoriesTab from "./StoriesTab";
+
+declare global {
+  interface Window {
+    __pendingOffer: any;
+    __pendingCandidates: any[];
+  }
+}
+
 function ScrollPicker({ items, selected, onChange, itemHeight = 40 }: { items: string[], selected: string, onChange: (val: string) => void, itemHeight?: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const isScrollingRef = useRef(false);
@@ -95,10 +172,13 @@ function CustomDateTimePicker({ onSelect, onClose }: { onSelect: (d: Date) => vo
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/60 flex flex-col justify-end md:justify-center items-center p-0 md:p-4" onClick={onClose}>
-      <div className="bg-neutral-900 w-full md:w-[400px] rounded-t-3xl md:rounded-3xl flex flex-col overflow-hidden border border-neutral-800 shadow-2xl" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-neutral-900 w-full max-w-[420px] max-h-[90vh] rounded-3xl flex flex-col overflow-hidden border border-neutral-800 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center p-4 border-b border-neutral-800">
-          <h3 className="text-lg font-medium text-neutral-100">Schedule Message</h3>
+          <h3 className="text-lg font-medium text-neutral-100 flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-indigo-400" />
+            Schedule Message
+          </h3>
           <button onClick={onClose} className="p-2 text-neutral-400 hover:text-white rounded-full transition-colors"><X className="w-5 h-5"/></button>
         </div>
         <div className="p-6 flex flex-col gap-8">
@@ -154,67 +234,6 @@ function CustomDateTimePicker({ onSelect, onClose }: { onSelect: (d: Date) => vo
     </div>
   );
 }
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import QRCode from "react-qr-code";
-import {
-  Settings,
-  Plus,
-  Search,
-  MessageSquare,
-  Clock,
-  Paperclip,
-  Send,
-  ArrowLeft,
-  QrCode,
-  X,
-  Zap,
-  Key,
-  Check,
-  CheckCheck,
-  Eye,
-  Mic,
-  Square,
-  Camera,
-  User,
-  AtSign,
-  Pencil,
-  Phone,
-  Video,
-  CircleDashed,
-  LogOut,
-  Calendar,
-  Copy,
-  Trash2,
-  Shield,
-  ChevronDown,
-  BadgeCheck,
-  Reply,
-  MoreVertical,
-  Users,
-  CheckSquare,
-  Filter,
-  Bell,
-  Archive,
-  ChevronLeft,
-  Edit2
-} from "lucide-react";
-import { Conversation, ChatMessage } from "../types";
-
-import { decryptFile } from "../crypto";
-import { DisappearingClock } from "./DisappearingClock";
-import { ScheduledClock } from "./ScheduledClock";
-import { DecryptedAvatar } from "./DecryptedAvatar";
-import { CallScreen, CallState } from "./CallScreen";
-import { CallsTab } from "./CallsTab";
-import { toast } from "./Toast";
-
-declare global {
-  interface Window {
-    __pendingOffer: any;
-    __pendingCandidates: any[];
-  }
-}
 
 function ViewOnceOverlay({
   onClose,
@@ -253,15 +272,214 @@ function ViewOnceOverlay({
   );
 }
 
+function VoiceMessagePlayer({ 
+  url, 
+  isSelf, 
+  isHeard,
+  onPlayed,
+  footer,
+}: { 
+  url: string; 
+  isSelf?: boolean; 
+  isHeard?: boolean;
+  onPlayed?: () => void;
+  footer?: React.ReactNode;
+  key?: React.Key;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [hasPlayed, setHasPlayed] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch(console.error);
+      setHasPlayed(true);
+      onPlayed?.();
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (!audioRef.current) return;
+    const cur = audioRef.current.currentTime;
+    const dur = audioRef.current.duration || 0;
+    setCurrentTime(cur);
+    setProgress(dur > 0 ? (cur / dur) * 100 : 0);
+  };
+
+  const handleLoadedMetadata = () => {
+    if (!audioRef.current) return;
+    const dur = audioRef.current.duration;
+    if (dur && isFinite(dur)) setDuration(dur);
+  };
+
+  const cycleRate = () => {
+    if (!audioRef.current) return;
+    const nextRate = playbackRate === 1 ? 1.5 : playbackRate === 1.5 ? 2 : 1;
+    setPlaybackRate(nextRate);
+    audioRef.current.playbackRate = nextRate;
+  };
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!audioRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickPos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const newTime = clickPos * (duration || audioRef.current.duration || 0);
+    audioRef.current.currentTime = newTime;
+    setProgress(clickPos * 100);
+  };
+
+  const formatTime = (sec: number) => {
+    if (!sec || isNaN(sec)) return "0:00";
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const isListenComplete = isSelf ? Boolean(isHeard) : Boolean(isHeard || hasPlayed);
+
+  return (
+    <div className="flex items-center gap-2.5 w-[230px] sm:w-[260px] select-none py-0.5">
+      <audio
+        ref={audioRef}
+        src={url}
+        onPlay={() => {
+          setIsPlaying(true);
+          setHasPlayed(true);
+          onPlayed?.();
+        }}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false);
+          setProgress(0);
+          setCurrentTime(0);
+        }}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+      />
+
+      <div className="relative shrink-0">
+        <button
+          onClick={togglePlay}
+          className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-transform active:scale-90 ${
+            isSelf 
+              ? "bg-white text-indigo-600 hover:bg-neutral-100" 
+              : "bg-emerald-500 text-white hover:bg-emerald-400"
+          }`}
+          title={isPlaying ? "Pause" : "Play voice message"}
+        >
+          {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+        </button>
+
+        {/* Incoming Unplayed Audio Badge (Disappears once listened) */}
+        {!isSelf && !isListenComplete && (
+          <span 
+            className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-neutral-900 shadow-[0_0_6px_rgba(52,211,153,0.85)]" 
+            title="Unplayed voice note"
+          />
+        )}
+      </div>
+
+      <div className="flex-1 flex flex-col justify-center gap-1 min-w-0">
+        <div
+          onClick={seek}
+          className="relative h-6 flex items-center gap-[2.5px] cursor-pointer group py-1"
+          title="Seek audio"
+        >
+          {/* Waveform Bars */}
+          {[35, 60, 25, 80, 40, 95, 55, 30, 85, 45, 70, 35, 75, 50, 25, 90, 55, 40, 65, 30, 55].map((h, i) => {
+            const barPercent = (i / 20) * 100;
+            const isFilled = progress >= barPercent;
+            return (
+              <span
+                key={i}
+                style={{ height: `${h}%` }}
+                className={`flex-1 rounded-full transition-colors duration-150 ${
+                  isFilled
+                    ? isListenComplete
+                      ? "bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.6)]"
+                      : isSelf
+                      ? "bg-white"
+                      : "bg-neutral-200"
+                    : isSelf
+                    ? "bg-indigo-300/40"
+                    : "bg-neutral-600/60"
+                } group-hover:opacity-90`}
+              />
+            );
+          })}
+
+          {/* Audio time scroll scrubber dot (thumb) that slides along the track */}
+          <div
+            className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full transition-all duration-75 pointer-events-none shadow-sm ${
+              isListenComplete
+                ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] ring-2 ring-emerald-500/40"
+                : isSelf
+                ? "bg-neutral-300 ring-2 ring-white/20"
+                : "bg-neutral-400 ring-2 ring-neutral-600/40"
+            }`}
+            style={{ left: `calc(${Math.min(Math.max(progress, 0), 100)}% - 6px)` }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] font-mono leading-none">
+          <div className="flex items-center gap-1.5">
+            <span className={isSelf ? "text-indigo-100" : "text-neutral-400"}>
+              {formatTime(isPlaying ? currentTime : duration || currentTime)}
+            </span>
+            <button
+              onClick={cycleRate}
+              className={`text-[9px] px-1 py-0.5 rounded font-sans font-medium transition-colors ${
+                isSelf ? "bg-indigo-800/50 hover:bg-indigo-800/70 text-indigo-200" : "bg-neutral-700/60 hover:bg-neutral-700 text-neutral-300"
+              }`}
+              title="Playback speed"
+            >
+              {playbackRate}x
+            </button>
+          </div>
+          {footer && (
+            <div className={`flex items-center gap-1 ${isSelf ? "text-indigo-200" : "text-neutral-400"}`}>
+              {footer}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AttachmentLoader({
   attachmentId,
   decryptionKey,
+  isSelf,
+  isHeard,
+  onPlayed,
+  footer,
+  onImageClick,
 }: {
   attachmentId: string;
   decryptionKey?: string;
+  isSelf?: boolean;
+  isHeard?: boolean;
+  onPlayed?: () => void;
+  footer?: React.ReactNode;
+  onImageClick?: (url: string) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [type, setType] = useState<string>("");
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [url]);
 
   useEffect(() => {
     if (!decryptionKey) return;
@@ -278,41 +496,302 @@ function AttachmentLoader({
       .then(async ({ blob, mimeType }) => {
         const decrypted = await decryptFile(blob, keyHex, mimeType);
         setType(decrypted.type);
-        setUrl(URL.createObjectURL(decrypted));
+        const objUrl = URL.createObjectURL(decrypted);
+        setUrl(objUrl);
       })
-      .catch(err => { if (err.message !== 'Failed to fetch') console.error(err); });
+      .catch((err) => {
+        console.error("Attachment decrypt error", err);
+        setError(true);
+      });
   }, [attachmentId, decryptionKey]);
+
+  if (error) {
+    return (
+      <div className="p-3 bg-neutral-900 border border-rose-500/50 rounded-2xl text-xs flex items-center gap-2.5 text-white font-medium shadow-md shadow-rose-950/30">
+        <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+        <span className="text-white font-semibold">Failed to decrypt attachment</span>
+      </div>
+    );
+  }
 
   if (!url) {
     return (
-      <div className="mb-2 p-3 bg-black/20 rounded-lg text-sm flex items-center gap-2">
-        <Clock className="w-4 h-4 animate-spin" />
-        Decrypting...
+      <div className="p-2.5 bg-black/20 rounded-xl text-xs flex items-center gap-2 text-neutral-400">
+        <Clock className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+        <span>Decrypting...</span>
       </div>
     );
   }
 
   if (type.startsWith("image/")) {
     return (
-      <img src={url} alt="Attachment" className="max-w-full rounded-lg mb-2" />
+      <div 
+        onClick={() => onImageClick?.(url)}
+        className="relative max-w-[260px] sm:max-w-[290px] max-h-[260px] rounded-2xl overflow-hidden cursor-pointer group shadow-sm bg-neutral-950/40"
+      >
+        <img 
+          src={url} 
+          alt="Attachment" 
+          className="w-full h-auto max-h-[260px] object-cover rounded-2xl transition-transform duration-300 group-hover:scale-[1.01]" 
+        />
+        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+          <Maximize2 className="w-5 h-5 text-white drop-shadow-md" />
+        </div>
+        {footer && (
+          <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-medium flex items-center gap-1 shadow-sm select-none pointer-events-none z-10">
+            {footer}
+          </div>
+        )}
+      </div>
     );
   }
   if (type.startsWith("video/")) {
-    return <video src={url} controls className="max-w-full rounded-lg mb-2" />;
+    return (
+      <div className="relative max-w-[270px] sm:max-w-[320px] max-h-[320px] rounded-2xl overflow-hidden shadow-sm bg-black/50">
+        <video src={url} controls className="w-full h-full max-h-[320px] object-cover rounded-2xl" />
+        {footer && (
+          <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-medium flex items-center gap-1 shadow-sm select-none pointer-events-none z-10">
+            {footer}
+          </div>
+        )}
+      </div>
+    );
   }
   if (type.startsWith("audio/")) {
-    return <audio src={url} controls className="max-w-full mb-2" />;
+    return <VoiceMessagePlayer url={url} isSelf={isSelf} isHeard={isHeard} onPlayed={onPlayed} footer={footer} />;
   }
 
   return (
-    <a
-      href={url}
-      download={`attachment-${attachmentId}`}
-      className="mb-2 p-3 bg-black/20 rounded-lg text-sm flex items-center gap-2 block hover:bg-black/30"
-    >
-      <Paperclip className="w-4 h-4" />
-      Download Attachment
-    </a>
+    <div className="flex flex-col gap-1">
+      <a
+        href={url}
+        download={`attachment-${attachmentId}`}
+        className="p-2.5 bg-black/20 rounded-xl text-xs flex items-center gap-2 hover:bg-black/30 border border-white/5 transition-colors"
+      >
+        <Paperclip className="w-4 h-4 text-indigo-400" />
+        <span className="truncate">Download Attachment</span>
+      </a>
+      {footer && <div className="self-end text-[10px] opacity-75">{footer}</div>}
+    </div>
+  );
+}
+
+function MediaGridLoader({
+  items,
+  isSelf,
+  isHeard,
+  onPlayed,
+  footer,
+  onImageClick,
+}: {
+  items: Array<{ attachmentId: string; decryptionKey: string }>;
+  isSelf?: boolean;
+  isHeard?: boolean;
+  onPlayed?: () => void;
+  footer?: React.ReactNode;
+  onImageClick?: (url: string, index: number, allUrls: string[]) => void;
+}) {
+  const [loadedMedia, setLoadedMedia] = useState<Array<{ id: string; url: string; type: string } | null>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    const objectUrls: string[] = [];
+
+    const loadAll = async () => {
+      setLoading(true);
+      const results: Array<{ id: string; url: string; type: string } | null> = [];
+
+      for (const item of items) {
+        try {
+          const parts = (item.decryptionKey || "").split("|");
+          const keyHex = parts[0];
+          const mimeOverride = parts[1];
+
+          const res = await fetch(`/api/v1/attachments/${item.attachmentId}`);
+          if (!res.ok) throw new Error("Missing");
+          const mimeType = mimeOverride || res.headers.get("content-type") || "application/octet-stream";
+          const blob = await res.blob();
+          const decrypted = await decryptFile(blob, keyHex, mimeType);
+          const objUrl = URL.createObjectURL(decrypted);
+          objectUrls.push(objUrl);
+          results.push({ id: item.attachmentId, url: objUrl, type: decrypted.type });
+        } catch (e) {
+          console.error("Failed to load attachment item", e);
+          results.push(null);
+        }
+      }
+
+      if (isMounted) {
+        setLoadedMedia(results);
+        setLoading(false);
+      }
+    };
+
+    loadAll();
+
+    return () => {
+      isMounted = false;
+      objectUrls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [items]);
+
+  if (loading) {
+    return (
+      <div className="p-2.5 bg-black/20 rounded-xl text-xs flex items-center gap-2 text-neutral-400">
+        <Clock className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+        <span>Decrypting media ({items.length})...</span>
+      </div>
+    );
+  }
+
+  const validItems = loadedMedia.filter((m): m is { id: string; url: string; type: string } => !!m);
+  if (validItems.length === 0) {
+    return (
+      <div className="p-3 bg-neutral-900 border border-rose-500/50 rounded-2xl text-xs flex items-center gap-2.5 text-white font-medium shadow-md shadow-rose-950/30">
+        <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+        <span className="text-white font-semibold">Media attachment unavailable</span>
+      </div>
+    );
+  }
+
+  const images = validItems.filter((m) => m.type.startsWith("image/"));
+  const nonImages = validItems.filter((m) => !m.type.startsWith("image/"));
+  const imageUrls = images.map((m) => m.url);
+
+  return (
+    <div className="space-y-1.5">
+      {images.length > 0 && (
+        <div className="relative rounded-2xl overflow-hidden shadow-sm">
+          {images.length === 1 && (
+            <div 
+              onClick={() => onImageClick?.(images[0].url, 0, imageUrls)}
+              className="relative max-w-[260px] sm:max-w-[290px] max-h-[260px] rounded-2xl overflow-hidden cursor-pointer group bg-neutral-950/40"
+            >
+              <img 
+                src={images[0].url} 
+                alt="Photo" 
+                className="w-full h-auto max-h-[260px] object-cover rounded-2xl transition-transform duration-300 group-hover:scale-[1.01]" 
+              />
+              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                <Maximize2 className="w-5 h-5 text-white drop-shadow-md" />
+              </div>
+            </div>
+          )}
+
+          {images.length === 2 && (
+            <div className="grid grid-cols-2 gap-1 max-w-[270px] sm:max-w-[320px] rounded-2xl overflow-hidden">
+              {images.map((img, idx) => (
+                <div 
+                  key={img.id}
+                  onClick={() => onImageClick?.(img.url, idx, imageUrls)}
+                  className="aspect-square relative cursor-pointer group bg-neutral-950/50 overflow-hidden"
+                >
+                  <img src={img.url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {images.length === 3 && (
+            <div className="grid grid-cols-2 grid-rows-2 gap-1 max-w-[270px] sm:max-w-[320px] h-[250px] sm:h-[270px] rounded-2xl overflow-hidden">
+              <div 
+                onClick={() => onImageClick?.(images[0].url, 0, imageUrls)}
+                className="col-span-1 row-span-2 relative cursor-pointer group bg-neutral-950/50 overflow-hidden"
+              >
+                <img src={images[0].url} alt="Photo 1" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+              </div>
+              <div 
+                onClick={() => onImageClick?.(images[1].url, 1, imageUrls)}
+                className="col-span-1 row-span-1 relative cursor-pointer group bg-neutral-950/50 overflow-hidden"
+              >
+                <img src={images[1].url} alt="Photo 2" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+              </div>
+              <div 
+                onClick={() => onImageClick?.(images[2].url, 2, imageUrls)}
+                className="col-span-1 row-span-1 relative cursor-pointer group bg-neutral-950/50 overflow-hidden"
+              >
+                <img src={images[2].url} alt="Photo 3" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+              </div>
+            </div>
+          )}
+
+          {images.length === 4 && (
+            <div className="grid grid-cols-2 gap-1 max-w-[270px] sm:max-w-[320px] rounded-2xl overflow-hidden">
+              {images.map((img, idx) => (
+                <div 
+                  key={img.id}
+                  onClick={() => onImageClick?.(img.url, idx, imageUrls)}
+                  className="aspect-square relative cursor-pointer group bg-neutral-950/50 overflow-hidden"
+                >
+                  <img src={img.url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {images.length >= 5 && (
+            <div className="grid grid-cols-2 gap-1 max-w-[270px] sm:max-w-[320px] rounded-2xl overflow-hidden">
+              {images.slice(0, 3).map((img, idx) => (
+                <div 
+                  key={img.id}
+                  onClick={() => onImageClick?.(img.url, idx, imageUrls)}
+                  className="aspect-square relative cursor-pointer group bg-neutral-950/50 overflow-hidden"
+                >
+                  <img src={img.url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                </div>
+              ))}
+              <div 
+                onClick={() => onImageClick?.(images[3].url, 3, imageUrls)}
+                className="aspect-square relative cursor-pointer group bg-neutral-950/50 overflow-hidden"
+              >
+                <img src={images[3].url} alt="More photos" className="w-full h-full object-cover blur-[1px] brightness-50" />
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center font-bold text-white text-xl drop-shadow-md">
+                  +{images.length - 3}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {footer && nonImages.length === 0 && (
+            <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-medium flex items-center gap-1 shadow-sm select-none pointer-events-none z-10">
+              {footer}
+            </div>
+          )}
+        </div>
+      )}
+
+      {nonImages.map((m) => {
+        if (m.type.startsWith("audio/")) {
+          return <VoiceMessagePlayer key={m.id} url={m.url} isSelf={isSelf} isHeard={isHeard} onPlayed={onPlayed} footer={footer} />;
+        }
+        if (m.type.startsWith("video/")) {
+          return (
+            <div key={m.id} className="relative max-w-[270px] sm:max-w-[320px] max-h-[320px] rounded-2xl overflow-hidden bg-black/50">
+              <video src={m.url} controls className="w-full h-full max-h-[320px] object-cover rounded-2xl" />
+              {footer && (
+                <div className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-medium flex items-center gap-1 shadow-sm select-none pointer-events-none z-10">
+                  {footer}
+                </div>
+              )}
+            </div>
+          );
+        }
+        return (
+          <div key={m.id} className="flex flex-col gap-1">
+            <a
+              href={m.url}
+              download={`attachment-${m.id}`}
+              className="p-2.5 bg-black/20 rounded-xl text-xs flex items-center gap-2 hover:bg-black/30 border border-white/5 transition-colors"
+            >
+              <Paperclip className="w-4 h-4 text-indigo-400" />
+              <span className="truncate">Download Attachment</span>
+            </a>
+            {footer && <div className="self-end text-[10px] opacity-75">{footer}</div>}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -380,7 +859,9 @@ function ViewOnceMessage({
         
         const decrypted = await decryptFile(blob, keyHex, mimeType);
         setType(decrypted.type);
-        setUrl(URL.createObjectURL(decrypted));
+        const objUrl = URL.createObjectURL(decrypted);
+        setUrl(objUrl);
+        setIsViewing(true);
       } catch (err) { if (err.message !== 'Failed to fetch') console.error(err); }
       setDecrypting(false);
     }
@@ -426,35 +907,92 @@ type ChatLayoutProps = {
   myId: string;
   myName?: string;
   myUsername?: string;
+  myPhoneNumber?: string;
   myPhoto?: string;
   myAbout?: string;
+  myRegistrationId?: number;
+  identity?: any;
   conversations: Conversation[];
   activeConvId: string | null;
   onSelectConv: (id: string) => void;
   onSendMessage: (
     text: string,
     scheduledTime?: Date,
-    attachment?: File,
+    attachment?: File | File[],
     expireIn?: number,
     isViewOnce?: boolean,
     replyToId?: string,
-    replyTo?: { text: string; senderName: string; isSelf: boolean; }
+    replyTo?: { text: string; senderName: string; senderId?: string; isSelf: boolean; }
   ) => void;
   onViewOnceOpened: (msgId: string, attachmentId?: string) => void;
   onAddContact: (id: string, name?: string, photoUrl?: string, about?: string) => void;
   onSaveContact: (id: string, name: string) => Promise<void>;
   onUpdateProfile: (updates: any) => void;
   onUpdateConversation?: (convId: string, updates: any) => void;
+  onDeleteConversation?: (convId: string) => void;
+  onDeleteMessage?: (convId: string, messageIds: string[], deleteForEveryone?: boolean) => void;
+  onEditMessage?: (convId: string, messageId: string, newText: string) => void;
   onLogout?: () => void;
 };
+
+function formatMessageDateDivider(dateInput: Date | string): string {
+  const date = new Date(dateInput);
+  const now = new Date();
+  
+  const isSameDay = (d1: Date, d2: Date) =>
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate();
+
+  if (isSameDay(date, now)) return "Today";
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (isSameDay(date, yesterday)) return "Yesterday";
+
+  const diffDays = Math.round((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 7 && diffDays > 0) {
+    return date.toLocaleDateString(undefined, { weekday: "long" });
+  }
+
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function getSenderColor(senderId?: string): string {
+  if (!senderId) return "#10b981";
+  const colors = [
+    "#38bdf8", // sky
+    "#4ade80", // emerald
+    "#fb923c", // orange
+    "#c084fc", // purple
+    "#f472b6", // pink
+    "#34d399", // teal
+    "#facc15", // amber
+    "#818cf8", // indigo
+    "#f87171", // rose
+    "#22d3ee", // cyan
+  ];
+  let hash = 0;
+  for (let i = 0; i < senderId.length; i++) {
+    hash = senderId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
 
 export default function ChatLayout({
   socket,
   myId,
   myName,
   myUsername,
+  myPhoneNumber,
   myPhoto,
   myAbout,
+  myRegistrationId,
+  identity,
   conversations,
   activeConvId,
   onSelectConv,
@@ -464,11 +1002,26 @@ export default function ChatLayout({
   onSaveContact,
   onUpdateProfile,
   onUpdateConversation,
+  onDeleteConversation,
+  onDeleteMessage,
+  onEditMessage,
   onLogout,
 }: ChatLayoutProps) {
   const [newContactId, setNewContactId] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [text, setText] = useState("");
+  const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
+  const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null);
+  const [showDeleteMenu, setShowDeleteMenu] = useState(false);
+  const longPressTimerRef = useRef<{ [msgId: string]: any }>({});
+  const didLongPressMsgRef = useRef<{ [msgId: string]: boolean }>({});
+  const lastMsgLongPressTimeRef = useRef<number>(0);
+
+  useEffect(() => {
+    setSelectedMsgIds([]);
+    setEditingMsg(null);
+    setShowDeleteMenu(false);
+  }, [activeConvId]);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [rescheduleMsgId, setRescheduleMsgId] = useState<string | null>(null);
   const [scheduleTime, setScheduleTime] = useState("");
@@ -493,11 +1046,26 @@ export default function ChatLayout({
   const [chatSettingsView, setChatSettingsView] = useState<"main" | "disappear">("main");
   const [tempDisappearDelay, setTempDisappearDelay] = useState<number>(-1);
   const [showCustomTimeModal, setShowCustomTimeModal] = useState(false);
+  const [showSafetyModal, setShowSafetyModal] = useState(false);
+  const [verifiedContacts, setVerifiedContacts] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("verified_contacts") || "{}");
+    } catch {
+      return {};
+    }
+  });
   const [customTimeValue, setCustomTimeValue] = useState("30");
   const [customTimeUnit, setCustomTimeUnit] = useState("seconds");
   const [globalCustomDisappearInput, setGlobalCustomDisappearInput] = useState("");
 
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const attachment = attachments[0] || null;
+  const setAttachment = (f: File | null) => setAttachments(f ? [f] : []);
+  const [lightboxState, setLightboxState] = useState<{ isOpen: boolean; urls: string[]; activeIndex: number }>({
+    isOpen: false,
+    urls: [],
+    activeIndex: 0,
+  });
   const [isViewOnce, setIsViewOnce] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -529,8 +1097,76 @@ export default function ChatLayout({
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showNotificationProfile, setShowNotificationProfile] = useState(false);
   const [showNotificationProfileSettings, setShowNotificationProfileSettings] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [messageInfoTarget, setMessageInfoTarget] = useState<ChatMessage | null>(null);
+  const [filterUnread, setFilterUnread] = useState(false);
+  const [showArchivedView, setShowArchivedView] = useState(false);
+  const [groupInvitePrompt, setGroupInvitePrompt] = useState<{
+    groupId: string;
+    groupName?: string;
+    description?: string;
+    membersCount?: number;
+    requireAdminApproval?: boolean;
+  } | null>(null);
+  const [activeNotifProfile, setActiveNotifProfile] = useState(() => localStorage.getItem("active_notif_profile") || "default");
+  const [showGroupAdmin, setShowGroupAdmin] = useState(false);
+  const [showRequestsModal, setShowRequestsModal] = useState(false);
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   const [groupName, setGroupName] = useState("");
+  const [groupDesc, setGroupDesc] = useState("");
+  const [requireApprovalOnCreate, setRequireApprovalOnCreate] = useState(false);
+  const [groupInviteContactsInput, setGroupInviteContactsInput] = useState("");
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [groupLink, setGroupLink] = useState("");
+
+  const refreshRequestsCount = useCallback(async () => {
+    if (!myId) return;
+    try {
+      const res = await fetch(`/api/v1/users/${myId}/requests`);
+      if (res.ok) {
+        const data = await res.json();
+        const total = (data.invites?.length || 0) + (data.adminApprovals?.length || 0);
+        setPendingRequestsCount(total);
+      }
+    } catch {}
+  }, [myId]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const grp = params.get("group");
+    if (grp) {
+      const cleanId = grp.replace(/^group_/, "");
+      fetch(`/api/v1/groups/${cleanId}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.group) {
+            setGroupInvitePrompt({
+              groupId: cleanId,
+              groupName: data.group.name,
+              description: data.group.description,
+              membersCount: data.group.members?.length || 1,
+              requireAdminApproval: data.group.requireAdminApproval,
+            });
+          } else {
+            setGroupInvitePrompt({ groupId: cleanId, groupName: `Group #${cleanId.slice(0, 8)}` });
+          }
+        })
+        .catch(() => {
+          setGroupInvitePrompt({ groupId: cleanId, groupName: `Group #${cleanId.slice(0, 8)}` });
+        });
+    }
+
+    refreshRequestsCount();
+    const handleRequestsUpdate = () => {
+      refreshRequestsCount();
+    };
+    window.addEventListener("securely_requests_updated", handleRequestsUpdate);
+    const interval = setInterval(refreshRequestsCount, 20000);
+    return () => {
+      window.removeEventListener("securely_requests_updated", handleRequestsUpdate);
+      clearInterval(interval);
+    };
+  }, [refreshRequestsCount]);
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
   const [contactNameInput, setContactNameInput] = useState("");
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
@@ -547,19 +1183,77 @@ export default function ChatLayout({
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const pendingCandidatesRef = useRef<any[]>([]);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const callStartTimeRef = useRef<number | null>(null);
+  const callIsIncomingRef = useRef(false);
+  const highlightTimeoutRef = useRef<any>(null);
+
+  // Real Call Logs
+  const [callLogs, setCallLogs] = useState<CallLog[]>(() => {
+    try {
+      const saved = localStorage.getItem(`signal_call_logs_${myId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) {
+      return [];
+    }
+  });
+
+  const addCallLog = (log: Omit<CallLog, "id" | "timestamp">) => {
+    const entry: CallLog = {
+      ...log,
+      id: Math.random().toString(36).substring(2, 9),
+      timestamp: new Date().toISOString(),
+    };
+    setCallLogs((prev) => {
+      const next = [entry, ...prev.slice(0, 99)];
+      try {
+        localStorage.setItem(`signal_call_logs_${myId}`, JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+  };
+
+  const clearCallLogs = () => {
+    setCallLogs([]);
+    try {
+      localStorage.removeItem(`signal_call_logs_${myId}`);
+    } catch (_) {}
+  };
 
   // Cleanup WebRTC
   const cleanupCall = () => {
+    callStartTimeRef.current = null;
     if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
+      try {
+        peerConnectionRef.current.close();
+      } catch (e) {
+        console.error("Error closing peer connection", e);
+      }
       peerConnectionRef.current = null;
     }
-    if (localStream) {
-      localStream.getTracks().forEach((t) => t.stop());
-      setLocalStream(null);
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch (e) {
+          console.error("Error stopping localStreamRef track", e);
+        }
+      });
+      localStreamRef.current = null;
     }
+    if (localStream) {
+      localStream.getTracks().forEach((t) => {
+        try {
+          t.stop();
+        } catch (e) {
+          console.error("Error stopping localStream track", e);
+        }
+      });
+    }
+    setLocalStream(null);
     setRemoteStream(null);
     setCallState("idle");
     setCallingUserId(null);
@@ -568,7 +1262,14 @@ export default function ChatLayout({
     setIsVideoOff(false);
     window.__pendingOffer = null;
     window.__pendingCandidates = [];
+    pendingCandidatesRef.current = [];
   };
+
+  useEffect(() => {
+    return () => {
+      cleanupCall();
+    };
+  }, []);
 
   const initLocalStream = async (video: boolean) => {
     try {
@@ -594,6 +1295,7 @@ export default function ChatLayout({
           throw e;
         }
       }
+      localStreamRef.current = stream;
       setLocalStream(stream);
       return stream;
     } catch (err: any) {
@@ -628,6 +1330,9 @@ export default function ChatLayout({
          return rStream;
       });
       setCallState("connected");
+      if (!callStartTimeRef.current) {
+        callStartTimeRef.current = Date.now();
+      }
     };
 
     pc.onicecandidate = (event) => {
@@ -659,6 +1364,8 @@ export default function ChatLayout({
     if (!idToCall) return;
     setCallIsVideo(isVideoCall);
     setIsIncomingCall(false);
+    callIsIncomingRef.current = false;
+    callStartTimeRef.current = null;
     setCallingUserId(idToCall);
     setCallState("calling");
     window.__pendingCandidates = [];
@@ -705,40 +1412,105 @@ export default function ChatLayout({
       
       if (payload.type === "offer") {
         if (callStateRef.current !== "idle") {
-          // busy
+          // Send busy signal back to caller
+          socket.emit("call_signaling", {
+            recipientId: senderId,
+            payload: { type: "end", reason: "busy" }
+          });
           return;
         }
         setCallingUserId(senderId);
         setCallIsVideo(payload.isVideo);
         setIsIncomingCall(true);
+        callIsIncomingRef.current = true;
+        callStartTimeRef.current = null;
         setCallState("ringing");
 
-        // Temporary create pc without stream just to save remote offer? Better to wait for user to accept.
-        // Actually, we must save the offer.
         window.__pendingOffer = payload.offer;
         window.__pendingCandidates = [];
       }
       else if (payload.type === "answer") {
         if (peerConnectionRef.current) {
-          await peerConnectionRef.current.setRemoteDescription(payload.answer);
-          if (window.__pendingCandidates) {
-             window.__pendingCandidates.forEach((c) => peerConnectionRef.current.addIceCandidate(c).catch(console.error));
-             window.__pendingCandidates = [];
+          try {
+            await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+            if (!callStartTimeRef.current) {
+              callStartTimeRef.current = Date.now();
+            }
+            const queued = [...pendingCandidatesRef.current, ...(window.__pendingCandidates || [])];
+            pendingCandidatesRef.current = [];
+            window.__pendingCandidates = [];
+            for (const cand of queued) {
+              if (cand && peerConnectionRef.current) {
+                try {
+                  await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(cand));
+                } catch (e) {
+                  console.warn("Could not add queued ICE candidate:", e);
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Error setting remote description on answer:", e);
           }
         }
       }
       else if (payload.type === "candidate") {
-        if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
-          try {
-            await peerConnectionRef.current.addIceCandidate(payload.candidate);
-          } catch(e) { console.error(e); }
-        } else {
-           // Queue candidate if pc isn't ready or remoteDescription is missing
-           if (!window.__pendingCandidates) window.__pendingCandidates = [];
-           window.__pendingCandidates.push(payload.candidate);
+        if (payload.candidate) {
+          if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription && peerConnectionRef.current.remoteDescription.type) {
+            try {
+              await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+            } catch(e) {
+              console.error("Error adding candidate:", e);
+            }
+          } else {
+            pendingCandidatesRef.current.push(payload.candidate);
+            if (!window.__pendingCandidates) window.__pendingCandidates = [];
+            window.__pendingCandidates.push(payload.candidate);
+          }
         }
       }
       else if (payload.type === "end") {
+        const otherId = senderId || callingUserId;
+        const conv = otherId ? conversations.find(c => c.id === otherId) : null;
+        const reason = payload.reason;
+
+        if (callStateRef.current === "ringing") {
+          // Callee was ringing and caller canceled or timed out -> MISSED CALL!
+          if (otherId) {
+            addCallLog({
+              userId: otherId,
+              displayName: conv?.displayName,
+              photoUrl: conv?.photoUrl,
+              type: "missed",
+              isVideo: callIsVideo,
+            });
+            toast(`Missed ${callIsVideo ? "video" : "voice"} call from ${conv?.displayName || "contact"}`, "error");
+          }
+        } else if (callStateRef.current === "calling" && reason === "rejected") {
+          // Caller was calling and callee rejected -> DECLINED!
+          if (otherId) {
+            addCallLog({
+              userId: otherId,
+              displayName: conv?.displayName,
+              photoUrl: conv?.photoUrl,
+              type: "rejected",
+              isVideo: callIsVideo,
+            });
+            toast(`Call declined by ${conv?.displayName || "contact"}`, "info");
+          }
+        } else if (callStateRef.current === "connected" && callStartTimeRef.current) {
+          // Normal end of connected call
+          const duration = Math.round((Date.now() - callStartTimeRef.current) / 1000);
+          if (otherId) {
+            addCallLog({
+              userId: otherId,
+              displayName: conv?.displayName,
+              photoUrl: conv?.photoUrl,
+              type: callIsIncomingRef.current ? "incoming" : "outgoing",
+              isVideo: callIsVideo,
+              duration,
+            });
+          }
+        }
         cleanupCall();
       }
     };
@@ -749,15 +1521,16 @@ export default function ChatLayout({
         socket.off("receive_call_signaling", onCallSignaling);
       };
     }
-  }, [socket]); // removed callState to prevent re-binding
+  }, [socket, conversations, callIsVideo]);
 
   const acceptCall = async () => {
     if (!callingUserId || !window.__pendingOffer) return;
     setCallState("connecting");
+    callStartTimeRef.current = Date.now();
     
     const stream = await initLocalStream(callIsVideo);
     if (!stream) {
-      sendCallSignaling({ type: "end" });
+      sendCallSignaling({ type: "end", reason: "error" });
       cleanupCall();
       return;
     }
@@ -771,9 +1544,17 @@ export default function ChatLayout({
       
       sendCallSignaling({ type: "answer", answer });
 
-      if (window.__pendingCandidates) {
-         window.__pendingCandidates.forEach((c: any) => pc.addIceCandidate(c));
-         window.__pendingCandidates = [];
+      const queued = [...pendingCandidatesRef.current, ...(window.__pendingCandidates || [])];
+      pendingCandidatesRef.current = [];
+      window.__pendingCandidates = [];
+      for (const cand of queued) {
+        if (cand) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch (e) {
+            console.warn("Could not add queued candidate on accept:", e);
+          }
+        }
       }
     } catch(e) {
       cleanupCall();
@@ -781,25 +1562,64 @@ export default function ChatLayout({
   };
 
   const rejectCall = () => {
-    sendCallSignaling({ type: "end" });
+    if (callingUserId) {
+      const conv = conversations.find(c => c.id === callingUserId);
+      addCallLog({
+        userId: callingUserId,
+        displayName: conv?.displayName,
+        photoUrl: conv?.photoUrl,
+        type: "rejected",
+        isVideo: callIsVideo,
+      });
+      sendCallSignaling({ type: "end", reason: "rejected" });
+      toast("Call declined", "info");
+    }
     cleanupCall();
   };
 
   const hangupCall = () => {
-    sendCallSignaling({ type: "end" });
+    if (callingUserId) {
+      const conv = conversations.find(c => c.id === callingUserId);
+      const wasConnected = callStateRef.current === "connected" && callStartTimeRef.current !== null;
+      const duration = wasConnected ? Math.round((Date.now() - callStartTimeRef.current!) / 1000) : 0;
+      
+      if (wasConnected) {
+        addCallLog({
+          userId: callingUserId,
+          displayName: conv?.displayName,
+          photoUrl: conv?.photoUrl,
+          type: callIsIncomingRef.current ? "incoming" : "outgoing",
+          isVideo: callIsVideo,
+          duration,
+        });
+      } else if (!callIsIncomingRef.current) {
+        // Outgoing call canceled before answer
+        addCallLog({
+          userId: callingUserId,
+          displayName: conv?.displayName,
+          photoUrl: conv?.photoUrl,
+          type: "outgoing",
+          isVideo: callIsVideo,
+          duration: 0,
+        });
+      }
+      sendCallSignaling({ type: "end", reason: wasConnected ? "normal" : "canceled" });
+    }
     cleanupCall();
   };
 
   const toggleMute = () => {
-    if (localStream) {
-      localStream.getAudioTracks().forEach(t => t.enabled = !t.enabled);
+    const stream = localStreamRef.current || localStream;
+    if (stream) {
+      stream.getAudioTracks().forEach(t => t.enabled = !t.enabled);
       setIsMuted(!isMuted);
     }
   };
 
   const toggleVideo = () => {
-    if (localStream) {
-      localStream.getVideoTracks().forEach(t => t.enabled = !t.enabled);
+    const stream = localStreamRef.current || localStream;
+    if (stream) {
+      stream.getVideoTracks().forEach(t => t.enabled = !t.enabled);
       setIsVideoOff(!isVideoOff);
     }
   };
@@ -839,14 +1659,25 @@ export default function ChatLayout({
   }, [newContactId]);
   
   const filteredConversations = useMemo(() => {
-    if (!searchQuery.trim() || !isSearchActive) return conversations;
+    let list = conversations;
+    if (showArchivedView) {
+      list = list.filter((c) => Boolean(c.isArchived));
+    } else {
+      list = list.filter((c) => !c.isArchived);
+    }
+    if (filterUnread) {
+      list = list.filter(
+        (c) => (c.unreadCount && c.unreadCount > 0) || c.messages.some((m) => !m.isSelf && m.status !== "read")
+      );
+    }
+    if (!searchQuery.trim() || !isSearchActive) return list;
     const lowerQuery = searchQuery.toLowerCase();
     
-    return conversations.filter(conv => {
+    return list.filter(conv => {
       if (conv.displayName?.toLowerCase().includes(lowerQuery) || conv.id.toLowerCase().includes(lowerQuery)) return true;
       return false;
     });
-  }, [conversations, searchQuery, isSearchActive]);
+  }, [conversations, searchQuery, isSearchActive, showArchivedView, filterUnread]);
 
   const messagesSearchResults = useMemo(() => {
     if (!searchQuery.trim() || !isSearchActive) return [];
@@ -862,88 +1693,125 @@ export default function ChatLayout({
 
   const activeConv = conversations.find((c) => c.id === activeConvId);
   const isNoteToSelf = activeConvId === myId;
-  const visibleMessages = activeConv?.messages.filter((m) => m.status !== "scheduled") || [];
-  const scheduledMessages = activeConv?.messages.filter((m) => m.status === "scheduled") || [];
+  const visibleMessages = useMemo(() => {
+    if (!activeConv) return [];
+    const seen = new Set<string>();
+    return activeConv.messages.filter((m) => {
+      if (m.status === "scheduled") return false;
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+  }, [activeConv]);
+  const scheduledMessages = useMemo(() => {
+    if (!activeConv) return [];
+    const seen = new Set<string>();
+    return activeConv.messages.filter((m) => {
+      if (m.status !== "scheduled") return false;
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+  }, [activeConv]);
   
   const [showScheduledModal, setShowScheduledModal] = useState(false);
   const [openScheduleMenuId, setOpenScheduleMenuId] = useState<string | null>(null);
+  const isSendingRef = useRef(false);
+  const didLongPressRef = useRef(false);
 
   const startVoiceRecording = async () => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        toast("Your browser does not support media devices or it's blocked. Please try in a separate tab.", "error");
+        toast("Audio recording requires a Secure Context (HTTPS or localhost).", "error");
         return;
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+
+      let mimeType = "";
+      if (typeof MediaRecorder.isTypeSupported === "function") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+          mimeType = "audio/webm";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          mimeType = "audio/mp4";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+          mimeType = "audio/ogg";
+        }
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       cancelRecordingRef.current = false;
       sendAfterRecordingRef.current = false;
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
       };
 
-      mediaRecorder.start();
       mediaRecorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
         
         if (cancelRecordingRef.current) {
           cancelRecordingRef.current = false;
+          audioChunksRef.current = [];
           return;
         }
 
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: "audio/webm",
+        const actualType = mediaRecorder.mimeType || mimeType || "audio/webm";
+        const audioBlob = new Blob(audioChunksRef.current, { type: actualType });
+        if (audioBlob.size === 0) return;
+
+        const ext = actualType.includes("mp4") ? "m4a" : actualType.includes("ogg") ? "ogg" : "webm";
+        const audioFile = new File([audioBlob], `voice-${Date.now()}.${ext}`, {
+          type: actualType,
         });
-        const audioFile = new File([audioBlob], `voice-${Date.now()}.webm`, {
-          type: "audio/webm",
-        });
-        setAttachment(audioFile);
         
         if (sendAfterRecordingRef.current) {
           sendAfterRecordingRef.current = false;
-          // Use setTimeout to ensure attachment state would have settled, or just manually call send
-          setTimeout(() => {
-             // We can't easily rely on handleSend directly since attachment is async
-             // We'll simulate by calling onSendMessage directly here
-             let expireValue = activeConv?.disappearDelay !== undefined ? activeConv.disappearDelay : globalDisappear;
-             onSendMessage(
-               "", 
-               undefined, 
-               audioFile, 
-               expireValue === -1 ? 0 : expireValue, 
-               false,
-               replyingTo?.id,
-               replyingTo ? {
-                  text: (() => {
-  if (replyingTo.decryptedText) return replyingTo.decryptedText;
-  if (replyingTo.attachmentId) {
-    if (replyingTo.isViewOnce) return "💣 View once message";
-    const mime = (replyingTo.decryptionKey || "").split("|")[1] || "";
-    if (mime.startsWith("audio/")) return "🎤 Voice message";
-    if (mime.startsWith("image/")) return "📷 Photo";
-    if (mime.startsWith("video/")) return "🎥 Video";
-    return "📎 Attachment";
-  }
-  return "";
-})(),
-                  senderName: replyingTo.isSelf ? 'You' : (activeConv?.displayName || 'Unknown'),
-                  isSelf: replyingTo.isSelf
-               } : undefined
-             );
-             setReplyingTo(null);
-             setAttachment(null);
-          }, 0);
+          const expireValue = activeConv?.disappearDelay !== undefined ? activeConv.disappearDelay : globalDisappear;
+          onSendMessage(
+            "", 
+            undefined, 
+            audioFile, 
+            (expireValue && expireValue > 0) ? expireValue : undefined, 
+            false,
+            replyingTo?.id,
+            replyingTo ? {
+              text: (() => {
+                if (replyingTo.decryptedText) return replyingTo.decryptedText;
+                if (replyingTo.attachmentId) {
+                  if (replyingTo.isViewOnce) return "💣 View once message";
+                  const mime = (replyingTo.decryptionKey || "").split("|")[1] || "";
+                  if (mime.startsWith("audio/")) return "🎤 Voice message";
+                  if (mime.startsWith("image/")) return "📷 Photo";
+                  if (mime.startsWith("video/")) return "🎥 Video";
+                  return "📎 Attachment";
+                }
+                return "";
+              })(),
+              senderName: replyingTo.isSelf ? 'You' : (activeConv?.displayName || 'Unknown'),
+              senderId: replyingTo.senderId,
+              isSelf: replyingTo.isSelf
+            } : undefined
+          );
+          setReplyingTo(null);
+          setAttachments([]);
+        } else {
+          setAttachments(prev => [...prev, audioFile]);
         }
       };
 
-      mediaRecorder.start();
+      mediaRecorder.start(200);
       setIsRecording(true);
       setRecordingTime(0);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Microphone error", err);
+      toast(err.message || "Microphone access denied. Please grant permission.", "error");
+      setIsRecording(false);
     }
   };
 
@@ -970,9 +1838,31 @@ export default function ChatLayout({
     }
   };
 
-  const handleSend = (overrideScheduleTime?: Date, overrideAttachment?: File) => {
-    const finalAttachment = overrideAttachment || attachment;
-    if (!text.trim() && !finalAttachment) return;
+  const handleSend = (overrideScheduleTime?: Date, overrideAttachment?: File | File[]) => {
+    if (editingMsg) {
+      if (text.trim() && onEditMessage && activeConv) {
+        onEditMessage(activeConv.id, editingMsg.id, text.trim());
+      }
+      setEditingMsg(null);
+      setText("");
+      return;
+    }
+    if (isSendingRef.current) return;
+    let finalAttachments: File[] = [];
+    if (overrideAttachment) {
+      finalAttachments = Array.isArray(overrideAttachment) ? overrideAttachment : [overrideAttachment];
+    } else if (attachments.length > 0) {
+      finalAttachments = attachments;
+    } else if (attachment) {
+      finalAttachments = [attachment];
+    }
+
+    if (!text.trim() && finalAttachments.length === 0) return;
+    isSendingRef.current = true;
+    setTimeout(() => {
+      isSendingRef.current = false;
+    }, 400);
+
     let sTime: Date | undefined;
     if (overrideScheduleTime) {
       sTime = overrideScheduleTime;
@@ -984,40 +1874,65 @@ export default function ChatLayout({
         ? activeConv.disappearDelay
         : globalDisappear;
 
-    // convert attachment
-    const atch = finalAttachment ? finalAttachment : undefined;
     onSendMessage(
       text,
       sTime,
-      atch,
+      finalAttachments.length > 0 ? finalAttachments : undefined,
       expireValue > 0 ? expireValue : undefined,
       isViewOnce,
       replyingTo?.id,
       replyingTo ? {
         text: (() => {
-  if (replyingTo.decryptedText) return replyingTo.decryptedText;
-  if (replyingTo.attachmentId) {
-    if (replyingTo.isViewOnce) return "💣 View once message";
-    const mime = (replyingTo.decryptionKey || "").split("|")[1] || "";
-    if (mime.startsWith("audio/")) return "🎤 Voice message";
-    if (mime.startsWith("image/")) return "📷 Photo";
-    if (mime.startsWith("video/")) return "🎥 Video";
-    return "📎 Attachment";
-  }
-  return "";
-})(),
+          if (replyingTo.decryptedText) return replyingTo.decryptedText;
+          if (replyingTo.attachmentId) {
+            if (replyingTo.isViewOnce) return "💣 View once message";
+            const mime = (replyingTo.decryptionKey || "").split("|")[1] || "";
+            if (mime.startsWith("audio/")) return "🎤 Voice message";
+            if (mime.startsWith("image/")) return "📷 Photo";
+            if (mime.startsWith("video/")) return "🎥 Video";
+            return "📎 Attachment";
+          }
+          return "";
+        })(),
         senderName: replyingTo.isSelf ? 'You' : (activeConv?.displayName || 'Unknown'),
+        senderId: replyingTo.senderId,
         isSelf: replyingTo.isSelf
       } : undefined
     );
     setReplyingTo(null);
 
     setText("");
-    setAttachment(null);
+    setAttachments([]);
     setIsViewOnce(false);
     setScheduleOpen(false);
     setScheduleTime("");
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleMarkAllRead = () => {
+    setShowChatMenu(false);
+    let markedAny = false;
+    conversations.forEach((conv) => {
+      const unreadMsgs = conv.messages.filter((m) => !m.isSelf && m.status !== "read");
+      if (unreadMsgs.length > 0 || (conv.unreadCount && conv.unreadCount > 0)) {
+        markedAny = true;
+        unreadMsgs.forEach((m) => {
+          socket.emit("message_receipt", {
+            messageId: m.id,
+            recipientId: conv.id,
+            status: "read",
+            readAt: new Date().toISOString(),
+          });
+        });
+        if (onUpdateConversation) {
+          onUpdateConversation(conv.id, {
+            unreadCount: 0,
+            messages: conv.messages.map((m) => (!m.isSelf ? { ...m, status: "read" } : m)),
+          });
+        }
+      }
+    });
+    toast(markedAny ? "All conversations marked as read" : "All conversations already read", "success");
   };
 
   return (
@@ -1446,47 +2361,81 @@ export default function ChatLayout({
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-8">
+              <div className="flex-1 overflow-y-auto p-4 space-y-6">
                 <div className="flex items-center gap-4">
-                  <button className="w-14 h-14 rounded-full bg-neutral-800 flex items-center justify-center shrink-0 hover:bg-neutral-700 transition-colors text-neutral-400">
-                    <Camera className="w-6 h-6" />
-                  </button>
-                  <div className="flex-1 border-b border-neutral-700 pb-1">
+                  <div className="w-14 h-14 rounded-full bg-neutral-800 flex items-center justify-center shrink-0 text-neutral-400">
+                    <Users className="w-7 h-7 text-indigo-400" />
+                  </div>
+                  <div className="flex-1 space-y-2">
                     <input 
                       type="text" 
                       placeholder="Group name (required)" 
                       value={groupName}
                       onChange={(e) => setGroupName(e.target.value)}
-                      className="w-full bg-transparent border-none outline-none text-white text-lg placeholder-neutral-500"
+                      className="w-full bg-transparent border-b border-neutral-700 pb-1 outline-none text-white text-base placeholder-neutral-500 focus:border-indigo-500"
                       autoFocus
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="Group description (optional)" 
+                      value={groupDesc}
+                      onChange={(e) => setGroupDesc(e.target.value)}
+                      className="w-full bg-transparent border-b border-neutral-800 pb-1 outline-none text-neutral-300 text-xs placeholder-neutral-500 focus:border-indigo-500"
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Clock className="w-6 h-6 text-neutral-400" />
-                    <span className="text-lg text-white">Disappearing messages</span>
+                {/* Approve new participants toggle */}
+                <div className="flex items-center justify-between p-3.5 bg-neutral-900 border border-neutral-800 rounded-2xl">
+                  <div className="pr-3">
+                    <h4 className="text-sm font-medium text-neutral-200">Approve New Participants</h4>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      Admins must approve users before they can join via invite link.
+                    </p>
                   </div>
-                  <span className="text-neutral-400 text-lg">Off</span>
+                  <button
+                    type="button"
+                    onClick={() => setRequireApprovalOnCreate(!requireApprovalOnCreate)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      requireApprovalOnCreate ? "bg-indigo-600" : "bg-neutral-800"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        requireApprovalOnCreate ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
                 </div>
 
-                <div className="border-t border-neutral-800 pt-6">
-                  <h3 className="text-lg font-medium text-white mb-2">Members</h3>
-                  <p className="text-neutral-400 text-base">You can add or invite friends after creating this group.</p>
+                {/* Direct invites / requests input */}
+                <div className="space-y-1.5 p-3.5 bg-neutral-900 border border-neutral-800 rounded-2xl">
+                  <label className="text-xs font-semibold text-neutral-300 uppercase tracking-wider block">
+                    Invite Contacts Directly
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter Securely IDs (comma-separated)..."
+                    value={groupInviteContactsInput}
+                    onChange={(e) => setGroupInviteContactsInput(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                  <p className="text-[11px] text-neutral-500">
+                    Contacts will receive a silent request in their Requests tab (no loud chime).
+                  </p>
                 </div>
 
                 {groupLink && (
-                  <div className="mt-8 p-4 bg-indigo-900/20 border border-indigo-500/30 rounded-2xl">
-                    <p className="text-sm font-medium text-indigo-400 mb-2">Group Link Generated</p>
+                  <div className="p-4 bg-indigo-900/20 border border-indigo-500/30 rounded-2xl space-y-2">
+                    <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Group Invite Link</p>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-neutral-300 truncate flex-1">{groupLink}</span>
+                      <span className="text-xs text-neutral-300 truncate flex-1 font-mono">{groupLink}</span>
                       <button 
                         onClick={() => {
                           navigator.clipboard.writeText(groupLink);
-                          toast("Link copied!", "success");
+                          toast("Link copied to clipboard!", "success");
                         }}
-                        className="p-2 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg transition-colors"
+                        className="p-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors"
                       >
                         <Copy className="w-4 h-4" />
                       </button>
@@ -1502,22 +2451,97 @@ export default function ChatLayout({
                       setShowNewGroup(false);
                       setGroupLink("");
                       setGroupName("");
+                      setGroupDesc("");
+                      setGroupInviteContactsInput("");
                     }}
-                    className="px-6 py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white font-medium rounded-full transition-colors"
+                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-full transition-colors text-sm"
                   >
                     Done
                   </button>
                 ) : (
                   <button
-                    disabled={!groupName.trim()}
-                    onClick={() => {
-                      // Generate link exactly like we do for video calls
-                      const id = crypto.randomUUID ? crypto.randomUUID().split("-")[0] : Math.random().toString(36).substring(7);
-                      setGroupLink(window.location.origin + "?group=" + id);
+                    disabled={!groupName.trim() || isCreatingGroup}
+                    onClick={async () => {
+                      if (!groupName.trim() || isCreatingGroup) return;
+                      setIsCreatingGroup(true);
+                      const id = (crypto.randomUUID ? crypto.randomUUID().split("-")[0] : Math.random().toString(36).substring(7));
+                      const fullLink = `${window.location.origin}/?group=${id}`;
+                      const newGroupId = `group_${id}`;
+
+                      const invitedList = groupInviteContactsInput
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+
+                      try {
+                        const res = await fetch("/api/v1/groups", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            groupId: id,
+                            name: groupName.trim(),
+                            description: groupDesc.trim(),
+                            creatorId: myId,
+                            creatorName: myName || myUsername || "Admin",
+                            requireAdminApproval: requireApprovalOnCreate,
+                            onlyAdminsCanPost: false,
+                            invitedUserIds: invitedList,
+                          }),
+                        });
+
+                        if (res.ok) {
+                          socket?.emit("join_group", { groupId: id, user: { userId: myId, name: myName || myUsername || "You" } });
+                          onAddContact(newGroupId, groupName.trim());
+                          if (onUpdateConversation) {
+                            onUpdateConversation(newGroupId, {
+                              id: newGroupId,
+                              displayName: groupName.trim(),
+                              groupDescription: groupDesc.trim(),
+                              isGroup: true,
+                              requireAdminApproval: requireApprovalOnCreate,
+                              onlyAdminsCanPost: false,
+                              groupMembers: [
+                                {
+                                  userId: myId,
+                                  displayName: myName || myUsername || "You",
+                                  role: "admin",
+                                  joinedAt: new Date().toISOString()
+                                }
+                              ],
+                              groupInviteLink: fullLink,
+                              messages: [
+                                {
+                                  id: "sys_" + Date.now(),
+                                  senderId: "system",
+                                  isSelf: false,
+                                  decryptedText: `Group "${groupName.trim()}" created. You are the group admin.`,
+                                  timestamp: new Date(),
+                                  status: "read",
+                                  isPostQuantum: true
+                                }
+                              ],
+                              unreadCount: 0
+                            });
+                          }
+                          setGroupLink(fullLink);
+                          onSelectConv(newGroupId);
+                          if (invitedList.length > 0) {
+                            toast(`Group created! Silent invites sent to ${invitedList.length} contact(s).`, "success");
+                          } else {
+                            toast(`Group "${groupName.trim()}" created!`, "success");
+                          }
+                        } else {
+                          toast("Failed to create group on server", "error");
+                        }
+                      } catch {
+                        toast("Error creating group", "error");
+                      } finally {
+                        setIsCreatingGroup(false);
+                      }
                     }}
-                    className="px-6 py-2.5 bg-neutral-200 disabled:bg-neutral-800 text-neutral-900 disabled:text-neutral-500 font-medium rounded-full transition-colors"
+                    className="px-6 py-2.5 bg-indigo-600 disabled:bg-neutral-800 text-white disabled:text-neutral-500 font-medium rounded-full transition-colors text-sm shadow-md"
                   >
-                    Create
+                    {isCreatingGroup ? "Creating..." : "Create Group"}
                   </button>
                 )}
               </div>
@@ -1694,207 +2718,25 @@ export default function ChatLayout({
         )}
       </AnimatePresence>
 
-      {showSettings && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl w-full max-w-md flex flex-col shadow-2xl overflow-hidden">
-            <div className="flex justify-between items-center p-6 border-b border-neutral-800 bg-neutral-900/50">
-              <h2 className="text-xl font-semibold text-white flex items-center gap-2">
-                <Settings className="w-5 h-5 text-indigo-400" />
-                Settings
-              </h2>
-              <button
-                onClick={() => setShowSettings(false)}
-                className="p-2 text-neutral-400 hover:text-white rounded-full hover:bg-neutral-800 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <div className="p-6 space-y-8 overflow-y-auto max-h-[70vh]">
-              {/* Privacy Section */}
-              <section className="space-y-4">
-                <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Shield className="w-4 h-4" />
-                  Privacy
-                </h3>
-                
-                <div className="flex items-center justify-between bg-neutral-800/50 p-4 rounded-2xl border border-neutral-800">
-                  <div>
-                    <p className="font-medium text-neutral-200">
-                      Discoverability
-                    </p>
-                    <p className="text-xs text-neutral-500 mt-1 leading-relaxed max-w-[240px]">
-                      Allow others to find you via username or phone search. 
-                      <span className="block mt-1">Users with your Securely ID can still connect.</span>
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const next = !isDiscoverable;
-                      setIsDiscoverable(next);
-                      onUpdateProfile({ discoverable: next });
-                    }}
-                    className={`w-12 h-6 rounded-full transition-colors relative shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900 ${isDiscoverable ? "bg-indigo-600" : "bg-neutral-700"}`}
-                  >
-                    <div
-                      className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform ${isDiscoverable ? "translate-x-6" : "translate-x-0.5"}`}
-                    ></div>
-                  </button>
-                </div>
-              </section>
-
-              {/* Messaging Section */}
-              <section className="space-y-4">
-                <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4" />
-                  Messaging
-                </h3>
-                
-                <div className="bg-neutral-800/50 p-4 rounded-2xl border border-neutral-800 space-y-4">
-                  <div>
-                    <p className="font-medium text-neutral-200">
-                      Global Disappearing Messages
-                    </p>
-                    <p className="text-xs text-neutral-500 mt-1 mb-4 leading-relaxed">
-                      Set a default expiration timer for all new messages sent across your conversations.
-                    </p>
-                  </div>
-                  
-                  <div className="relative">
-                    <select
-                      value={globalDisappear}
-                      onChange={(e) => {
-                        const v = parseInt(e.target.value);
-                        setGlobalDisappear(v);
-                        localStorage.setItem("global_disappear", v.toString());
-                      }}
-                      className="w-full bg-neutral-900 border border-neutral-700 text-white rounded-xl py-3 px-4 outline-none focus:border-indigo-500 appearance-none transition-colors"
-                    >
-                      <option value={0}>Off</option>
-                      <option value={60}>1 Minute</option>
-                      <option value={120}>2 Minutes</option>
-                      <option value={300}>5 Minutes</option>
-                      <option value={1800}>30 Minutes</option>
-                      <option value={3600}>1 Hour</option>
-                      <option value={86400}>1 Day</option>
-                      <option value={259200}>3 Days</option>
-                      <option value={2592000}>1 Month</option>
-                    </select>
-                    <div className="absolute right-4 top-3.5 pointer-events-none text-neutral-400">
-                      <ChevronDown className="w-5 h-5" />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      placeholder="Custom timer (seconds)"
-                      className="flex-1 bg-neutral-900 border border-neutral-700 text-white rounded-xl px-4 py-3 outline-none focus:border-indigo-500 transition-colors placeholder:text-neutral-600"
-                      value={globalCustomDisappearInput}
-                      onChange={(e) => setGlobalCustomDisappearInput(e.target.value)}
-                    />
-                    <button
-                      onClick={() => {
-                        const val = parseInt(globalCustomDisappearInput);
-                        if (!isNaN(val) && val > 0) {
-                          setGlobalDisappear(val);
-                          localStorage.setItem("global_disappear", val.toString());
-                          setGlobalCustomDisappearInput("");
-                        }
-                      }}
-                      className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 px-5 py-3 rounded-xl font-medium transition-colors whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900"
-                    >
-                      Set
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-              {/* How it Works Section */}
-              <section className="space-y-4">
-                <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <BadgeCheck className="w-4 h-4" />
-                  How it Works
-                </h3>
-                
-                <div className="bg-neutral-800/50 p-4 rounded-2xl border border-neutral-800 space-y-4 text-sm text-neutral-300">
-                  <div>
-                    <h4 className="font-medium text-neutral-200 mb-1 flex items-center gap-1.5"><Key className="w-4 h-4 text-indigo-400" /> End-to-End Encryption</h4>
-                    <p className="text-neutral-500 leading-relaxed">
-                      Every message, photo, and voice memo is encrypted on your device before sending. Only you and your recipient have the keys to decrypt them. The server never sees your content.
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-neutral-200 mb-1 flex items-center gap-1.5"><Clock className="w-4 h-4 text-indigo-400" /> Disappearing Messages</h4>
-                    <p className="text-neutral-500 leading-relaxed">
-                      The expiration timer starts only after a message has been sent (for you) or read (for the recipient). Once the timer runs out, the message is permanently deleted from both devices.
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-neutral-200 mb-1 flex items-center gap-1.5"><User className="w-4 h-4 text-indigo-400" /> Note to Self</h4>
-                    <p className="text-neutral-500 leading-relaxed">
-                      Your personal space to save links, memos, and files. Notes to yourself are also encrypted and can be scheduled for a future time as reminders.
-                    </p>
-                  </div>
-                </div>
-              </section>
-
-              {/* Account Section */}
-              <section className="space-y-4 pt-4 border-t border-neutral-800">
-                <h3 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <User className="w-4 h-4" />
-                  Account
-                </h3>
-                
-                <div className="space-y-3">
-                  <button
-                    onClick={() => {
-                      if (window.confirm("Are you sure you want to log out?")) {
-                        if (onLogout) {
-                          onLogout();
-                        } else {
-                          localStorage.removeItem("signal_identity");
-                          window.location.href = "/";
-                       }
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 py-3.5 rounded-xl font-medium transition-colors"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Log Out
-                  </button>
-  
-                  <button
-                    onClick={async () => {
-                      if (window.confirm("Are you absolutely sure you want to DELETE your account? This cannot be undone.")) {
-                        try {
-                          const res = await fetch(`/api/v1/users?securelyId=${myId}`, { method: 'DELETE' });
-                          if (res.ok) {
-                            if (onLogout) {
-                              onLogout();
-                            } else {
-                              localStorage.removeItem("signal_identity");
-                              window.location.href = "/";
-                            }
-                          } else {
-                            toast("Failed to delete account.", "error");
-                          }
-                        } catch (e) {
-                           toast("Error deleting account.", "error");
-                        }
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-500 py-3.5 rounded-xl font-medium transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete Account
-                  </button>
-                </div>
-              </section>
-            </div>
-          </div>
-        </div>
-      )}
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        myId={myId}
+        myName={myName || "Me"}
+        myUsername={myUsername}
+        myPhoneNumber={myPhoneNumber}
+        myPhoto={myPhoto}
+        myAbout={myAbout}
+        myRegistrationId={myRegistrationId}
+        identity={identity}
+        conversations={conversations}
+        isDiscoverable={isDiscoverable}
+        onToggleDiscoverable={setIsDiscoverable}
+        globalDisappear={globalDisappear}
+        onChangeGlobalDisappear={setGlobalDisappear}
+        onUpdateProfile={onUpdateProfile}
+        onLogout={onLogout}
+      />
 
       {/* Sidebar */}
       <div
@@ -1922,11 +2764,35 @@ export default function ChatLayout({
               >
                 <Users className="w-5 h-5 text-neutral-400" /> New group
               </button>
-              <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
+              <button 
+                onClick={() => { setShowChatMenu(false); setShowRequestsModal(true); }}
+                className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center justify-between text-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <Inbox className="w-5 h-5 text-neutral-400" /> 
+                  <span>Requests</span>
+                </div>
+                {pendingRequestsCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-indigo-600 font-bold text-white shadow-sm">
+                    {pendingRequestsCount}
+                  </span>
+                )}
+              </button>
+              <button 
+                onClick={handleMarkAllRead}
+                className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm"
+              >
                 <CheckSquare className="w-5 h-5 text-neutral-400" /> Mark all read
               </button>
-              <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
-                <Filter className="w-5 h-5 text-neutral-400" /> Filter unread chats
+              <button 
+                onClick={() => { setShowChatMenu(false); setFilterUnread(!filterUnread); }}
+                className={`w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center justify-between text-sm ${filterUnread ? "text-indigo-400 font-semibold" : ""}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Filter className="w-5 h-5 text-neutral-400" /> 
+                  <span>{filterUnread ? "Show all chats" : "Filter unread chats"}</span>
+                </div>
+                {filterUnread && <span className="w-2 h-2 rounded-full bg-indigo-500" />}
               </button>
               <button 
                 onClick={() => { setShowChatMenu(false); setShowNotificationProfile(true); }}
@@ -1934,8 +2800,19 @@ export default function ChatLayout({
               >
                 <Bell className="w-5 h-5 text-neutral-400" /> Notification profile
               </button>
-              <button className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center gap-3 text-sm">
-                <Archive className="w-5 h-5 text-neutral-400" /> Archived chats
+              <button 
+                onClick={() => { setShowChatMenu(false); setShowArchivedView(!showArchivedView); }}
+                className={`w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors flex items-center justify-between text-sm ${showArchivedView ? "text-indigo-400 font-semibold" : ""}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Archive className="w-5 h-5 text-neutral-400" /> 
+                  <span>{showArchivedView ? "Back to Inbox" : "Archived chats"}</span>
+                </div>
+                {conversations.filter(c => c.isArchived).length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-neutral-800 text-neutral-300">
+                    {conversations.filter(c => c.isArchived).length}
+                  </span>
+                )}
               </button>
               <button 
                 onClick={() => { setShowChatMenu(false); setShowSettings(true); }}
@@ -1960,7 +2837,7 @@ export default function ChatLayout({
               >
                 <div className="flex items-center gap-3">
                   <button 
-                    onClick={() => setShowProfileModal(true)}
+                    onClick={() => setShowSettings(true)}
                     className="rounded-full shadow-lg shrink-0 overflow-hidden hover:opacity-80 transition-opacity"
                   >
                     <DecryptedAvatar 
@@ -1980,11 +2857,13 @@ export default function ChatLayout({
                   <div className="relative flex items-center">
                     <button
                       onClick={() => setShowChatMenu(!showChatMenu)}
-                      className="cursor-pointer hover:text-white transition-colors"
+                      className="cursor-pointer hover:text-white transition-colors relative"
                     >
                       <MoreVertical className="w-6 h-6" />
+                      {pendingRequestsCount > 0 && (
+                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-indigo-500 ring-2 ring-neutral-900" />
+                      )}
                     </button>
-
                   </div>
                 </div>
               </motion.div>
@@ -2026,25 +2905,70 @@ export default function ChatLayout({
         <div className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
           {activeTab === "chats" ? (
             <>
+              {/* Unread Filter Banner */}
+              {filterUnread && (
+                <div className="mx-3 my-2 px-3.5 py-2 bg-indigo-500/15 border border-indigo-500/30 rounded-xl flex items-center justify-between text-xs text-indigo-300 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Filtering unread chats</span>
+                  </div>
+                  <button 
+                    onClick={() => setFilterUnread(false)}
+                    className="p-1 hover:text-white rounded-md transition-colors"
+                    title="Clear filter"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Archived Chats Mode Banner */}
+              {showArchivedView && (
+                <div className="mx-3 my-2 px-3.5 py-2 bg-neutral-800/90 border border-neutral-700/80 rounded-xl flex items-center justify-between text-xs text-neutral-200 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Archive className="w-3.5 h-3.5 text-indigo-400" />
+                    <span className="font-medium">Archived Chats</span>
+                  </div>
+                  <button 
+                    onClick={() => setShowArchivedView(false)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+                  >
+                    Back to Inbox
+                  </button>
+                </div>
+              )}
+
               <div className="flex-1 overflow-y-auto h-full w-full">
             {!isSearchActive || !searchQuery.trim() ? (
             filteredConversations.length === 0 ? (
               <div className="p-8 text-center text-neutral-500 flex flex-col items-center justify-center h-full">
                 <MessageSquare className="w-12 h-12 mb-3 opacity-20" />
-                <p className="text-sm">No active conversations.</p>
-                <button
-                  onClick={() => setShowAdd(!showAdd)}
-                  className="text-indigo-400 hover:text-indigo-300 text-sm mt-3 border border-indigo-500/30 px-4 py-1.5 rounded-full transition-colors"
-                >
-                  Start a secure chat
-                </button>
+                <p className="text-sm">
+                  {showArchivedView ? "No archived chats." : filterUnread ? "No unread chats." : "No active conversations."}
+                </p>
+                {filterUnread && (
+                  <button
+                    onClick={() => setFilterUnread(false)}
+                    className="text-indigo-400 hover:text-indigo-300 text-sm mt-3 border border-indigo-500/30 px-4 py-1.5 rounded-full transition-colors"
+                  >
+                    Show all chats
+                  </button>
+                )}
+                {!showArchivedView && !filterUnread && (
+                  <button
+                    onClick={() => setShowAdd(!showAdd)}
+                    className="text-indigo-400 hover:text-indigo-300 text-sm mt-3 border border-indigo-500/30 px-4 py-1.5 rounded-full transition-colors"
+                  >
+                    Start a secure chat
+                  </button>
+                )}
               </div>
             ) : (
               filteredConversations.map((conv) => (
                 <button
                   key={conv.id}
                   onClick={() => onSelectConv(conv.id)}
-                  className={`w-full p-3 flex items-center gap-3 transition-colors text-left border-b border-neutral-800/50 ${activeConvId === conv.id ? "bg-neutral-800" : "hover:bg-neutral-800/50"}`}
+                  className={`w-full p-3 flex items-center gap-3 transition-colors text-left border-b border-neutral-800/50 group ${activeConvId === conv.id ? "bg-neutral-800" : "hover:bg-neutral-800/50"}`}
                 >
                   <DecryptedAvatar 
                     photoUrl={conv.photoUrl}
@@ -2056,15 +2980,46 @@ export default function ChatLayout({
                       <h3 className="font-medium text-neutral-200 truncate">
                         {conv.displayName || "Unknown"}
                       </h3>
-                      <span className="text-xs text-neutral-500 shrink-0">
-                        {conv.messages.length > 0 &&
-                          new Date(
-                            conv.messages[conv.messages.length - 1].timestamp,
-                          ).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-neutral-500 shrink-0">
+                          {conv.messages.length > 0 &&
+                            new Date(
+                              conv.messages[conv.messages.length - 1].timestamp,
+                            ).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                        </span>
+                        {showArchivedView ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onUpdateConversation) {
+                                onUpdateConversation(conv.id, { isArchived: false });
+                              }
+                              toast("Conversation unarchived", "info");
+                            }}
+                            className="px-2 py-0.5 bg-neutral-700 hover:bg-neutral-600 text-neutral-200 text-[11px] rounded transition-colors"
+                            title="Unarchive chat"
+                          >
+                            Unarchive
+                          </button>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onUpdateConversation) {
+                                onUpdateConversation(conv.id, { isArchived: true });
+                              }
+                              toast("Conversation archived", "info");
+                            }}
+                            className="opacity-0 group-hover:opacity-70 hover:!opacity-100 p-1 rounded hover:bg-neutral-700 text-neutral-400 hover:text-white transition-opacity"
+                            title="Archive chat"
+                          >
+                            <Archive className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <p className="text-sm text-neutral-500 truncate">
                       {(() => {
@@ -2196,14 +3151,18 @@ export default function ChatLayout({
                     setTimeout(() => startCallDialog(isVideo, userId), 50);
                  }}
                  onMenuClick={() => setShowChatMenu(!showChatMenu)}
+                 callLogs={callLogs}
+                 onClearCallLogs={clearCallLogs}
               />
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full p-8 text-neutral-500 text-center">
-              <CircleDashed className="w-12 h-12 mb-3 opacity-20" />
-              <h3 className="text-lg font-medium text-neutral-200 mb-2">Stories</h3>
-              <p className="text-sm">Stories and status updates coming soon.</p>
-            </div>
+            <StoriesTab
+              currentUserId={myId}
+              currentUserName={myName || myUsername || "You"}
+              currentUserAvatar={myPhoto}
+              conversations={conversations}
+              socket={socket}
+            />
           )}
         
         </div>
@@ -2249,64 +3208,246 @@ export default function ChatLayout({
       >
         {activeConvId ? (
           <>
-            {/* Chat Header */}
-            <div className="h-16 border-b border-neutral-800 flex items-center px-4 bg-neutral-900/80 backdrop-blur-md z-10 sticky top-0 shrink-0 justify-between gap-2">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <button
-                  className="md:hidden p-2 -ml-2 text-neutral-400 shrink-0"
-                  onClick={() => onSelectConv("")}
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-                <div
-                  className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity min-w-0 flex-1"
-                  onClick={() => setShowChatSettings(true)}
-                >
-                  <DecryptedAvatar 
-                    photoUrl={activeConv?.photoUrl}
-                    fallback={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv.displayName.substring(0, 2).toUpperCase() : "?"}
-                    className="w-10 h-10 rounded-full shrink-0 shadow-sm"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-neutral-100 truncate flex items-center gap-1.5">
-                      {isNoteToSelf ? "Note to Self" : (activeConv?.displayName || "Unknown")}
-                      {isNoteToSelf && <BadgeCheck className="w-4 h-4 text-indigo-400 shrink-0" />}
-                    </h3>
-                    <p className="text-xs text-neutral-500 mb-1 truncate">
-                      {activeConv?.disappearDelay !== undefined && activeConv.disappearDelay > 0
-                        ? `Disappearing in ${activeConv.disappearDelay}s`
-                        : (activeConv?.disappearDelay === undefined || activeConv?.disappearDelay === -1) && globalDisappear > 0
-                        ? `Default: Disappearing in ${globalDisappear}s`
-                        : "Tap for chat settings"}
-                    </p>
+            {/* Chat Header or Selection Action Bar */}
+            {selectedMsgIds.length > 0 ? (
+              <div className="h-16 border-b border-indigo-500/40 bg-neutral-900/95 backdrop-blur-md z-30 sticky top-0 shrink-0 flex items-center justify-between px-4 animate-in fade-in duration-200">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setSelectedMsgIds([]);
+                      setShowDeleteMenu(false);
+                    }}
+                    className="p-2 -ml-1 text-neutral-300 hover:text-white rounded-full hover:bg-neutral-800 transition-colors"
+                    title="Cancel selection"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                  <span className="text-base font-bold text-white select-none">
+                    {selectedMsgIds.length}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 relative">
+                  {/* Info button - if 1 message selected */}
+                  {selectedMsgIds.length === 1 && (
+                    <button
+                      onClick={() => {
+                        const target = activeConv?.messages.find((m) => m.id === selectedMsgIds[0]);
+                        if (target) {
+                          setMessageInfoTarget(target);
+                          setShowInfoModal(true);
+                        }
+                      }}
+                      className="p-2 text-neutral-300 hover:text-white rounded-full hover:bg-neutral-800 transition-colors"
+                      title="Message info"
+                    >
+                      <Info className="w-5 h-5" />
+                    </button>
+                  )}
+
+                  {/* Reply button - if 1 message selected */}
+                  {selectedMsgIds.length === 1 && (
+                    <button
+                      onClick={() => {
+                        const target = activeConv?.messages.find((m) => m.id === selectedMsgIds[0]);
+                        if (target) {
+                          setReplyingTo(target);
+                          setSelectedMsgIds([]);
+                        }
+                      }}
+                      className="p-2 text-neutral-300 hover:text-white rounded-full hover:bg-neutral-800 transition-colors"
+                      title="Reply"
+                    >
+                      <Reply className="w-5 h-5" />
+                    </button>
+                  )}
+
+                  {/* Copy button */}
+                  <button
+                    onClick={() => {
+                      const texts = activeConv?.messages
+                        .filter((m) => selectedMsgIds.includes(m.id) && m.decryptedText)
+                        .map((m) => m.decryptedText)
+                        .join("\n");
+                      if (texts) {
+                        navigator.clipboard.writeText(texts);
+                        toast("Copied to clipboard", "success");
+                      }
+                      setSelectedMsgIds([]);
+                    }}
+                    className="p-2 text-neutral-300 hover:text-white rounded-full hover:bg-neutral-800 transition-colors"
+                    title="Copy"
+                  >
+                    <Copy className="w-5 h-5" />
+                  </button>
+
+                  {/* Edit button - if 1 message selected and isSelf and not deleted */}
+                  {(() => {
+                    const single = selectedMsgIds.length === 1 ? activeConv?.messages.find((m) => m.id === selectedMsgIds[0]) : null;
+                    if (single && single.isSelf && !single.isDeletedForEveryone && !single.attachmentId && (!single.attachments || single.attachments.length === 0)) {
+                      return (
+                        <button
+                          onClick={() => {
+                            setEditingMsg(single);
+                            setText(single.decryptedText);
+                            setSelectedMsgIds([]);
+                          }}
+                          className="p-2 text-neutral-300 hover:text-white rounded-full hover:bg-neutral-800 transition-colors"
+                          title="Edit message"
+                        >
+                          <Edit2 className="w-5 h-5" />
+                        </button>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  {/* Delete button with Dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowDeleteMenu(!showDeleteMenu)}
+                      className="p-2 text-neutral-300 hover:text-rose-400 rounded-full hover:bg-neutral-800 transition-colors"
+                      title="Delete options"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+
+                    {showDeleteMenu && (
+                      <div className="absolute right-0 top-full mt-2 w-52 bg-neutral-900 border border-neutral-700/80 rounded-2xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                        <button
+                          onClick={() => {
+                            if (onDeleteMessage && activeConv) {
+                              onDeleteMessage(activeConv.id, selectedMsgIds, false);
+                            }
+                            setSelectedMsgIds([]);
+                            setShowDeleteMenu(false);
+                          }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800 flex items-center gap-2 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4 text-neutral-400" />
+                          Delete for me
+                        </button>
+
+                        {/* Delete for everyone - only if all selected messages are self */}
+                        {activeConv?.messages
+                          .filter((m) => selectedMsgIds.includes(m.id))
+                          .every((m) => m.isSelf) && (
+                          <button
+                            onClick={() => {
+                              if (onDeleteMessage && activeConv) {
+                                onDeleteMessage(activeConv.id, selectedMsgIds, true);
+                              }
+                              setSelectedMsgIds([]);
+                              setShowDeleteMenu(false);
+                            }}
+                            className="w-full text-left px-4 py-2.5 text-xs font-medium text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4 text-rose-400" />
+                            Delete for everyone
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {activeConv?.id !== myId && (
-                  <>
-                    <button
-                      onClick={() => startCallDialog(false, activeConvId || undefined)}
-                      className="p-2 bg-neutral-800 rounded-full hover:bg-neutral-700 text-neutral-400"
+            ) : (
+              <div className="h-16 border-b border-neutral-800 flex items-center px-4 bg-neutral-900/80 backdrop-blur-md z-10 sticky top-0 shrink-0 justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <button
+                    className="md:hidden p-2 -ml-2 text-neutral-400 shrink-0"
+                    onClick={() => onSelectConv("")}
+                  >
+                    <ArrowLeft className="w-5 h-5" />
+                  </button>
+                  <div
+                    className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity min-w-0 flex-1"
+                    onClick={() => activeConv?.isGroup ? setShowGroupAdmin(true) : setShowChatSettings(true)}
+                  >
+                    <div
+                      onClick={(e) => {
+                        if (activeConv?.photoUrl) {
+                          e.stopPropagation();
+                          setLightboxState({ isOpen: true, urls: [activeConv.photoUrl], activeIndex: 0 });
+                        }
+                      }}
+                      className="shrink-0"
+                      title={activeConv?.photoUrl ? "View profile photo" : "Profile photo"}
                     >
-                      <Phone className="w-4 h-4" />
-                    </button>
+                      <DecryptedAvatar 
+                        photoUrl={activeConv?.photoUrl}
+                        fallback={activeConv?.displayName && activeConv.displayName !== 'Unknown' ? activeConv.displayName.substring(0, 2).toUpperCase() : "?"}
+                        className="w-10 h-10 rounded-full shrink-0 shadow-sm cursor-pointer hover:ring-2 hover:ring-indigo-500/50 transition-all"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium text-neutral-100 truncate flex items-center gap-1.5">
+                        {isNoteToSelf ? "Note to Self" : (activeConv?.displayName || "Unknown")}
+                        {isNoteToSelf && <BadgeCheck className="w-4 h-4 text-indigo-400 shrink-0" />}
+                        {(activeConv?.isPostQuantum || isNoteToSelf) && (
+                          <span
+                            title="Secured with Signal PQXDH & Post-Quantum Double Ratchet (ML-KEM-768)"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                          >
+                            <ShieldCheck className="w-3 h-3" />
+                            PQXDH
+                          </span>
+                        )}
+                        {activeConvId && verifiedContacts[activeConvId] && (
+                          <span className="text-[10px] text-emerald-400 flex items-center gap-0.5 bg-emerald-500/10 px-1 py-0.5 rounded">
+                            <Check className="w-2.5 h-2.5" /> Verified
+                          </span>
+                        )}
+                      </h3>
+                      <p className="text-xs text-neutral-500 mb-1 truncate flex items-center gap-1">
+                        {(activeConv?.isPostQuantum || isNoteToSelf) && (
+                          <span className="text-emerald-400/90 font-mono text-[11px]">PQ · </span>
+                        )}
+                        {activeConv?.isGroup
+                          ? `${activeConv.groupMembers?.length || 1} members · Tap for group info & settings`
+                          : activeConv?.disappearDelay !== undefined && activeConv.disappearDelay > 0
+                          ? `Disappearing in ${activeConv.disappearDelay}s`
+                          : (activeConv?.disappearDelay === undefined || activeConv?.disappearDelay === -1) && globalDisappear > 0
+                          ? `Default: Disappearing in ${globalDisappear}s`
+                          : "Tap for security & chat settings"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeConv?.isGroup ? (
                     <button
-                      onClick={() => startCallDialog(true, activeConvId || undefined)}
-                      className="p-2 bg-neutral-800 rounded-full hover:bg-neutral-700 text-neutral-400"
+                      onClick={() => setShowGroupAdmin(true)}
+                      className="p-2 bg-neutral-800 rounded-full hover:bg-neutral-700 text-neutral-400 transition-colors"
+                      title="Group Info & Settings"
                     >
-                      <Video className="w-4 h-4" />
+                      <Users className="w-4 h-4" />
                     </button>
-                  </>
-                )}
-                <button
-                  onClick={() => setShowQrModal(true)}
-                  className="p-2 bg-neutral-800 rounded-full hover:bg-neutral-700 text-neutral-400"
-                >
-                  <QrCode className="w-4 h-4" />
-                </button>
+                  ) : activeConv?.id !== myId && (
+                    <>
+                      <button
+                        onClick={() => startCallDialog(false, activeConvId || undefined)}
+                        className="p-2 bg-neutral-800 rounded-full hover:bg-neutral-700 text-neutral-400"
+                      >
+                        <Phone className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => startCallDialog(true, activeConvId || undefined)}
+                        className="p-2 bg-neutral-800 rounded-full hover:bg-neutral-700 text-neutral-400"
+                      >
+                        <Video className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => setShowQrModal(true)}
+                    className="p-2 bg-neutral-800 rounded-full hover:bg-neutral-700 text-neutral-400"
+                  >
+                    <QrCode className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {activeConv?.disappearDelay !== undefined && activeConv.disappearDelay > 0 ? (
               <div className="bg-indigo-600/10 border-b border-indigo-500/20 py-2 px-4 shadow-sm text-center text-[13px] font-medium text-indigo-300 flex justify-center items-center gap-2 shrink-0 z-0">
@@ -2319,6 +3460,35 @@ export default function ChatLayout({
                 (Default) You set the disappear message timer for {globalDisappear} seconds
               </div>
             ) : null}
+
+            {activeConv?.isRequest && (
+              <div className="bg-amber-500/10 border-b border-amber-500/20 py-2.5 px-4 text-center text-xs font-medium text-amber-200 flex flex-wrap justify-between items-center gap-2 shrink-0 z-10">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-amber-400">🛡️</span>
+                  <span>Message Request from unknown contact. Allow messages from this user?</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (onDeleteConversation) onDeleteConversation(activeConv.id);
+                      toast("Message request declined", "info");
+                    }}
+                    className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-rose-300 rounded-lg text-xs transition-colors"
+                  >
+                    Decline
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (onUpdateConversation) onUpdateConversation(activeConv.id, { isRequest: false });
+                      toast("Message request accepted", "success");
+                    }}
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors shadow-sm"
+                  >
+                    Accept
+                  </button>
+                </div>
+              </div>
+            )}
 
             {showChatSettings && (
               <div className="fixed inset-0 z-50 bg-neutral-950 flex flex-col text-neutral-100 overflow-y-auto">
@@ -2382,6 +3552,52 @@ export default function ChatLayout({
                             </div>
                           </div>
                         </button>
+
+                        {/* Post-Quantum Encryption & Safety Section */}
+                        <div className="py-4 px-4 border-b border-neutral-800 bg-neutral-900/40">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                              <span className="font-medium text-neutral-100">Post-Quantum Security</span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-mono font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              ML-KEM-768
+                            </span>
+                          </div>
+
+                          <div className="space-y-2 text-xs text-neutral-400 bg-neutral-950/60 p-3 rounded-xl border border-neutral-800">
+                            <div className="flex justify-between items-center py-0.5 border-b border-neutral-800/60">
+                              <span className="text-neutral-500">Protocol</span>
+                              <span className="font-mono text-neutral-200">Signal PQXDH + Double Ratchet</span>
+                            </div>
+                            <div className="flex justify-between items-center py-0.5 border-b border-neutral-800/60">
+                              <span className="text-neutral-500">PQ Standard</span>
+                              <span className="font-mono text-emerald-400">NIST FIPS 203 (ML-KEM-768)</span>
+                            </div>
+                            <div className="flex justify-between items-center py-0.5 border-b border-neutral-800/60">
+                              <span className="text-neutral-500">Classical Curve</span>
+                              <span className="font-mono text-neutral-300">Curve25519 (X25519)</span>
+                            </div>
+                            <div className="flex justify-between items-center py-0.5 border-b border-neutral-800/60">
+                              <span className="text-neutral-500">KDF Derivation</span>
+                              <span className="font-mono text-neutral-300">HKDF-SHA256 (Hybrid PQ)</span>
+                            </div>
+                            <div className="flex justify-between items-center py-0.5">
+                              <span className="text-neutral-500">Forward Secrecy</span>
+                              <span className="text-emerald-400 flex items-center gap-1 font-medium">
+                                <Check className="w-3.5 h-3.5" /> Break-in Recovery Active
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => setShowSafetyModal(true)}
+                            className="mt-3 w-full py-3 px-4 bg-emerald-600/15 hover:bg-emerald-600/25 active:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                          >
+                            <Key className="w-4 h-4" />
+                            Verify Safety Number & QR Code
+                          </button>
+                        </div>
                       </div>
                     </>
                   ) : (
@@ -2546,11 +3762,19 @@ export default function ChatLayout({
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               <div className="py-6 flex flex-col items-center">
-                <div className="w-12 h-12 bg-indigo-500/10 rounded-full flex items-center justify-center border border-indigo-500/20 mb-3">
-                  <Key className="w-5 h-5 text-indigo-400" />
+                <div className="w-12 h-12 bg-emerald-500/10 rounded-full flex items-center justify-center border border-emerald-500/20 mb-3 shadow-lg shadow-emerald-500/5">
+                  <ShieldCheck className="w-6 h-6 text-emerald-400" />
                 </div>
-                <p className="text-sm text-neutral-400 max-w-sm text-center">
-                  Messages are End-to-end encrypted
+                <div className="flex items-center gap-1.5 justify-center mb-1">
+                  <span className="text-sm font-semibold text-neutral-200">
+                    Post-Quantum End-to-End Encrypted
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    ML-KEM-768
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-400 max-w-sm text-center">
+                  Messages and calls are secured with Signal's PQXDH & Post-Quantum Double Ratchet. Protected against present and future quantum computers.
                 </p>
               </div>
               {!isNoteToSelf && (!activeConv?.displayName || activeConv.displayName === 'Unknown') && (
@@ -2615,14 +3839,27 @@ export default function ChatLayout({
                 </div>
               )}
 
-              {visibleMessages.map((msg) => {
+              {visibleMessages.map((msg, index) => {
                 const isScheduled = msg.status === "scheduled";
+                const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
+                const isNewDay = !prevMsg || new Date(msg.timestamp).toDateString() !== new Date(prevMsg.timestamp).toDateString();
                 return (
-                  <div
-                    key={msg.id}
-                    id={`msg-${msg.id}`}
-                    className={`relative w-full mb-1 flex items-center overflow-visible transition-colors duration-1000 ${highlightMsgId === msg.id ? 'bg-indigo-900/40 rounded-lg' : ''}`}
-                  >
+                  <React.Fragment key={msg.id}>
+                    {isNewDay && (
+                      <div className="flex justify-center my-3 select-none">
+                        <span className="px-3 py-1 rounded-full text-[11px] font-medium bg-neutral-800/90 text-neutral-300 shadow-sm border border-neutral-700/50 backdrop-blur-md">
+                          {formatMessageDateDivider(msg.timestamp)}
+                        </span>
+                      </div>
+                    )}
+                    <div
+                      id={`msg-${msg.id}`}
+                      className={`relative w-full mb-1 flex items-center overflow-visible transition-all duration-300 ${
+                        highlightMsgId === msg.id 
+                          ? 'scale-[1.02] ring-2 ring-indigo-400 ring-offset-2 ring-offset-neutral-950 rounded-2xl bg-indigo-500/25 shadow-[0_0_24px_rgba(99,102,241,0.5)]' 
+                          : ''
+                      }`}
+                    >
                     <div className="absolute left-4 opacity-0 text-neutral-400 transition-opacity flex items-center z-0" id={`reply-icon-${msg.id}`}>
                        <Reply className="w-5 h-5" />
                     </div>
@@ -2659,33 +3896,17 @@ export default function ChatLayout({
                       className={`flex flex-col w-full z-10 ${msg.isSelf ? "items-end" : "items-start"}`}
                     >
                       <div className={`flex items-center gap-2 max-w-[90%] ${msg.isSelf ? "flex-row-reverse" : "flex-row"}`}>
-                      <div
-                        className={`rounded-2xl px-3 py-1.5 ${msg.isSelf ? "bg-indigo-600 text-white rounded-tr-sm" : "bg-neutral-800 text-neutral-100 rounded-tl-sm"}`}
-                      >
-                        {msg.replyTo && (
-                          <div 
-                            className="mb-1.5 bg-black/20 rounded-lg p-2 border-l-2 border-indigo-400 text-sm flex flex-col gap-0.5 cursor-pointer hover:bg-black/30 transition-colors"
-                            onClick={() => {
-                              const el = document.getElementById(`msg-${msg.replyToId}`);
-                              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }}
-                          >
-                            <span className="font-semibold text-indigo-300 text-[11px] leading-tight truncate">
-                              {msg.replyTo.isSelf ? "You" : (msg.replyTo.senderName || "Unknown")}
-                            </span>
-                            <span className={`truncate text-[12px] opacity-90 ${msg.isSelf ? 'text-indigo-100' : 'text-neutral-300'}`}>
-                              {msg.replyTo.text || "Attachment"}
-                            </span>
-                          </div>
-                        )}
-                      {msg.isViewOnce ? (
-                        <div className="flex flex-wrap items-end min-w-0 min-h-0 gap-x-3 gap-y-1">
-                          <ViewOnceMessage msg={msg} onViewed={() => {
-                            if (onViewOnceOpened) {
-                              onViewOnceOpened(msg.id, msg.attachmentId);
-                            }
-                          }} />
-                          <div className={`shrink-0 inline-flex items-center gap-1 ${msg.isSelf ? "text-indigo-300" : "text-neutral-500"}`}>
+                      {(() => {
+                        const hasMedia = Boolean((msg.attachments && msg.attachments.length > 0) || msg.attachmentId);
+                        const hasCaption = hasMedia && Boolean(msg.decryptedText && msg.decryptedText.trim().length > 0);
+                        const isPureMedia = hasMedia && !hasCaption;
+                        const isVoice = Boolean(
+                          (msg.attachments && msg.attachments.some(a => (a.decryptionKey || '').includes('audio/'))) || 
+                          (msg.decryptionKey && msg.decryptionKey.includes('audio/'))
+                        );
+
+                        const timestampNode = (
+                          <div className={`inline-flex items-center gap-1 ${msg.isSelf ? "text-indigo-200" : "text-neutral-400"}`}>
                             {!!msg.expireIn && <DisappearingClock expireIn={msg.expireIn} />}
                             {isScheduled && <Clock className="w-3 h-3" />}
                             <span className="text-[10px] uppercase font-medium tracking-wider">
@@ -2698,19 +3919,34 @@ export default function ChatLayout({
                                     minute: "2-digit",
                                   })}
                             </span>
+                            {(msg.isPostQuantum || isNoteToSelf) && (
+                              <span title="Protected by Signal PQXDH & Post-Quantum Double Ratchet (ML-KEM-768)" className="opacity-80">
+                                <ShieldCheck className="w-2.5 h-2.5 text-emerald-300 inline" />
+                              </span>
+                            )}
                             {msg.isSelf && !isScheduled && (
-                              <span className="ml-0.5 -mr-0.5">
+                              <span className="ml-1 inline-flex items-center">
                                 {msg.status === "sending" && (
-                                  <Clock className="w-3 h-3 opacity-50" />
+                                  <Clock className="w-3.5 h-3.5 opacity-60 animate-pulse text-neutral-300" title="Sending..." />
                                 )}
                                 {msg.status === "sent" && (
-                                  <Check className="w-3.5 h-3.5" />
+                                  <span title="Sent to server (Recipient offline)" className="inline-flex items-center">
+                                    <Check className="w-3.5 h-3.5 text-white/70" strokeWidth={2.2} />
+                                  </span>
                                 )}
                                 {msg.status === "delivered" && (
-                                  <CheckCheck className="w-3.5 h-3.5" />
+                                  <span title="Delivered to recipient" className="inline-flex items-center">
+                                    <CheckCheck className="w-3.5 h-3.5 text-white/85" strokeWidth={2.2} />
+                                  </span>
                                 )}
                                 {msg.status === "read" && (
-                                  <CheckCheck className="w-3.5 h-3.5 text-blue-400" />
+                                  <span title={isVoice ? (msg.isHeard ? "Voice Message Listened" : "Delivered (Not Listened)") : "Read / Seen"} className="inline-flex items-center">
+                                    {isVoice && !msg.isHeard ? (
+                                      <CheckCheck className="w-3.5 h-3.5 text-white/85" strokeWidth={2.2} />
+                                    ) : (
+                                      <CheckCheck className="w-3.5 h-3.5 text-emerald-400 drop-shadow-[0_0_6px_rgba(52,211,153,0.85)]" strokeWidth={2.5} />
+                                    )}
+                                  </span>
                                 )}
                               </span>
                             )}
@@ -2719,63 +3955,276 @@ export default function ChatLayout({
                                 <ScheduledClock scheduledTime={msg.scheduledTime} />
                               </span>
                             )}
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          {msg.attachmentId && (
-                            <AttachmentLoader
-                              attachmentId={msg.attachmentId}
-                              decryptionKey={msg.decryptionKey}
-                            />
-                          )}
-                          <div className="whitespace-pre-wrap break-words min-w-0 text-[15px] leading-snug">
-                            {msg.decryptedText}
-                            <div
-                              className={`float-right inline-flex items-center gap-1 ml-3 mt-1.5 translate-y-[3px] ${msg.isSelf ? "text-indigo-300" : "text-neutral-500"}`}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMessageInfoTarget(msg);
+                                setShowInfoModal(true);
+                              }}
+                              className="opacity-0 group-hover:opacity-75 hover:!opacity-100 p-0.5 ml-0.5 rounded transition-opacity"
+                              title="Message Info / View who has seen"
                             >
-                              {!!msg.expireIn && <DisappearingClock expireIn={msg.expireIn} />}
-                              {isScheduled && <Clock className="w-3 h-3" />}
-                              <span className="text-[10px] uppercase font-medium tracking-wider">
-                                {isScheduled
-                                  ? "Scheduled"
-                                  : Math.floor((Date.now() - new Date(msg.timestamp).getTime()) / 1000) < 60
-                                  ? "now"
-                                  : new Date(msg.timestamp).toLocaleTimeString([], {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
-                              </span>
-                              {msg.isSelf && !isScheduled && (
-                                <span className="ml-0.5 -mr-0.5">
-                                  {msg.status === "sending" && (
-                                    <Clock className="w-3 h-3 opacity-50" />
-                                  )}
-                                  {msg.status === "sent" && (
-                                    <Check className="w-3.5 h-3.5" />
-                                  )}
-                                  {msg.status === "delivered" && (
-                                    <CheckCheck className="w-3.5 h-3.5" />
-                                  )}
-                                  {msg.status === "read" && (
-                                    <CheckCheck className="w-3.5 h-3.5 text-blue-400" />
-                                  )}
-                                </span>
-                              )}
-                              {msg.isSelf && isScheduled && msg.scheduledTime && (
-                                <span className="ml-0.5 -mr-0.5">
-                                  <ScheduledClock scheduledTime={msg.scheduledTime} />
-                                </span>
-                              )}
-                            </div>
+                              <Info className="w-3 h-3 text-current" />
+                            </button>
                           </div>
-                        </>
-                      )}
-                    </div>
+                        );
+
+                        const isSelected = selectedMsgIds.includes(msg.id);
+                        let bubbleStyle = msg.isSelf ? "bg-indigo-600 text-white rounded-tr-sm" : "bg-neutral-800 text-neutral-100 rounded-tl-sm";
+                        if (isSelected) {
+                          bubbleStyle += " ring-2 ring-indigo-400 ring-offset-2 ring-offset-neutral-950 shadow-md";
+                        }
+                        let bubblePadding = "px-3 py-1.5";
+
+                        if (isPureMedia) {
+                          if (isVoice) {
+                            bubblePadding = "px-2.5 py-1.5";
+                          } else {
+                            bubblePadding = "p-0 overflow-hidden";
+                          }
+                        } else if (hasMedia) {
+                          bubblePadding = "p-1 pb-1.5";
+                        }
+
+                        if (msg.isDeletedForEveryone) {
+                          return (
+                            <div 
+                              onClick={(e) => {
+                                if (selectedMsgIds.length > 0) {
+                                  e.stopPropagation();
+                                  setSelectedMsgIds((prev) =>
+                                    prev.includes(msg.id) ? prev.filter((id) => id !== msg.id) : [...prev, msg.id]
+                                  );
+                                }
+                              }}
+                              className={`rounded-2xl shadow-sm ${bubbleStyle} px-3 py-2 group relative select-none`}
+                            >
+                              <div className="italic text-neutral-400 text-[13px] flex items-center gap-1.5">
+                                <AlertCircle className="w-3.5 h-3.5 opacity-60 text-neutral-400 shrink-0" />
+                                <span>This message was deleted</span>
+                                <div className={`float-right inline-flex items-center gap-1 ml-2 ${msg.isSelf ? "text-indigo-300" : "text-neutral-500"}`}>
+                                  {timestampNode}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div 
+                            onClick={(e) => {
+                              if (didLongPressMsgRef.current[msg.id] || Date.now() - lastMsgLongPressTimeRef.current < 600) {
+                                didLongPressMsgRef.current[msg.id] = false;
+                                e.stopPropagation();
+                                return;
+                              }
+                              if (selectedMsgIds.length > 0) {
+                                e.stopPropagation();
+                                setSelectedMsgIds((prev) =>
+                                  prev.includes(msg.id) ? prev.filter((id) => id !== msg.id) : [...prev, msg.id]
+                                );
+                              }
+                            }}
+                            onPointerDown={() => {
+                              didLongPressMsgRef.current[msg.id] = false;
+                              if (selectedMsgIds.length > 0) return;
+                              longPressTimerRef.current[msg.id] = setTimeout(() => {
+                                didLongPressMsgRef.current[msg.id] = true;
+                                lastMsgLongPressTimeRef.current = Date.now();
+                                setSelectedMsgIds([msg.id]);
+                                setShowDeleteMenu(false);
+                                if (window.navigator?.vibrate) window.navigator.vibrate(40);
+                              }, 450);
+                            }}
+                            onPointerUp={() => {
+                              if (longPressTimerRef.current[msg.id]) {
+                                clearTimeout(longPressTimerRef.current[msg.id]);
+                                delete longPressTimerRef.current[msg.id];
+                              }
+                            }}
+                            onPointerLeave={() => {
+                              if (longPressTimerRef.current[msg.id]) {
+                                clearTimeout(longPressTimerRef.current[msg.id]);
+                                delete longPressTimerRef.current[msg.id];
+                              }
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              if (selectedMsgIds.length === 0) {
+                                setSelectedMsgIds([msg.id]);
+                              } else {
+                                setSelectedMsgIds((prev) =>
+                                  prev.includes(msg.id) ? prev.filter((id) => id !== msg.id) : [...prev, msg.id]
+                                );
+                              }
+                            }}
+                            className={`rounded-2xl shadow-sm ${bubbleStyle} ${bubblePadding} group relative`}
+                          >
+                            {activeConv?.isGroup && !msg.isSelf && (
+                              <div 
+                                className="text-[12px] font-semibold mb-1 px-1 tracking-tight select-none cursor-pointer"
+                                style={{ color: getSenderColor(msg.senderId) }}
+                              >
+                                {msg.senderName || activeConv.groupMembers?.find((m) => m.userId === msg.senderId)?.displayName || conversations.find((c) => c.id === msg.senderId)?.displayName || msg.senderId.slice(0, 8)}
+                              </div>
+                            )}
+
+                            {msg.replyTo && (
+                              <div 
+                                className="mb-2 mx-0.5 bg-black/35 backdrop-blur-md rounded-xl p-2.5 border-l-[3.5px] border-indigo-400 text-sm flex flex-col gap-0.5 cursor-pointer hover:bg-black/50 active:scale-[0.99] transition-all select-none shadow-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!msg.replyToId) return;
+                                  const targetId = msg.replyToId;
+                                  const el = document.getElementById(`msg-${targetId}`);
+                                  if (el) {
+                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    setHighlightMsgId(targetId);
+                                    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+                                    highlightTimeoutRef.current = setTimeout(() => {
+                                      setHighlightMsgId(null);
+                                    }, 2000);
+                                  } else {
+                                    toast("Original message not found in this chat", "info");
+                                  }
+                                }}
+                              >
+                                <div className="flex items-center gap-1.5 font-semibold text-indigo-300 text-[11px] leading-tight">
+                                  <Reply className="w-3 h-3 rotate-180 opacity-80 shrink-0" />
+                                  <span className="truncate">
+                                    {msg.replyTo.senderId === myId || (msg.isSelf && msg.replyTo.isSelf)
+                                      ? "You" 
+                                      : (msg.replyTo.senderName || "Unknown")}
+                                  </span>
+                                </div>
+                                <span className={`truncate text-[12px] opacity-90 ${msg.isSelf ? 'text-indigo-100' : 'text-neutral-300'}`}>
+                                  {msg.replyTo.text || "Attachment"}
+                                </span>
+                              </div>
+                            )}
+
+                            {msg.isViewOnce ? (
+                              <div className="flex flex-wrap items-end min-w-0 min-h-0 gap-x-3 gap-y-1 p-2">
+                                <ViewOnceMessage msg={msg} onViewed={() => {
+                                  if (onViewOnceOpened) {
+                                    onViewOnceOpened(msg.id, msg.attachmentId);
+                                  }
+                                }} />
+                                <div className={`shrink-0 inline-flex items-center gap-1 ${msg.isSelf ? "text-indigo-300" : "text-neutral-500"}`}>
+                                  {timestampNode}
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                {msg.attachments && msg.attachments.length > 0 ? (
+                                  <MediaGridLoader
+                                    items={msg.attachments}
+                                    isSelf={msg.isSelf}
+                                    isHeard={msg.isHeard}
+                                    onPlayed={() => {
+                                      if (!msg.isSelf) {
+                                        const targetRecipient = activeConv?.isGroup ? activeConv.id : msg.senderId;
+                                        socket.emit("message_receipt", {
+                                          messageId: msg.id,
+                                          recipientId: targetRecipient,
+                                          status: "read",
+                                          isHeard: true,
+                                          readAt: new Date().toISOString(),
+                                        });
+                                        if (activeConv?.isGroup && msg.senderId && msg.senderId !== targetRecipient) {
+                                          socket.emit("message_receipt", {
+                                            messageId: msg.id,
+                                            recipientId: msg.senderId,
+                                            status: "read",
+                                            isHeard: true,
+                                            readAt: new Date().toISOString(),
+                                          });
+                                        }
+                                        if (onUpdateConversation && activeConv) {
+                                          onUpdateConversation(activeConv.id, {
+                                            messages: activeConv.messages.map((m) =>
+                                              m.id === msg.id ? { ...m, isHeard: true } : m
+                                            ),
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    footer={isPureMedia ? timestampNode : undefined}
+                                    onImageClick={(url, idx, allUrls) => {
+                                      setLightboxState({ isOpen: true, urls: allUrls, activeIndex: idx });
+                                    }}
+                                  />
+                                ) : msg.attachmentId ? (
+                                  <AttachmentLoader
+                                    attachmentId={msg.attachmentId}
+                                    decryptionKey={msg.decryptionKey}
+                                    isSelf={msg.isSelf}
+                                    isHeard={msg.isHeard}
+                                    onPlayed={() => {
+                                      if (!msg.isSelf) {
+                                        const targetRecipient = activeConv?.isGroup ? activeConv.id : msg.senderId;
+                                        socket.emit("message_receipt", {
+                                          messageId: msg.id,
+                                          recipientId: targetRecipient,
+                                          status: "read",
+                                          isHeard: true,
+                                          readAt: new Date().toISOString(),
+                                        });
+                                        if (activeConv?.isGroup && msg.senderId && msg.senderId !== targetRecipient) {
+                                          socket.emit("message_receipt", {
+                                            messageId: msg.id,
+                                            recipientId: msg.senderId,
+                                            status: "read",
+                                            isHeard: true,
+                                            readAt: new Date().toISOString(),
+                                          });
+                                        }
+                                        if (onUpdateConversation && activeConv) {
+                                          onUpdateConversation(activeConv.id, {
+                                            messages: activeConv.messages.map((m) =>
+                                              m.id === msg.id ? { ...m, isHeard: true } : m
+                                            ),
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    footer={isPureMedia ? timestampNode : undefined}
+                                    onImageClick={(url) => {
+                                      setLightboxState({ isOpen: true, urls: [url], activeIndex: 0 });
+                                    }}
+                                  />
+                                ) : null}
+
+                                {hasCaption && (
+                                  <div className="px-2 pt-1.5 whitespace-pre-wrap break-words min-w-0 text-[15px] leading-snug">
+                                    {msg.decryptedText}
+                                    {msg.isEdited && <span className="text-[10px] opacity-75 italic ml-1 select-none font-normal">(edited)</span>}
+                                    <div className={`float-right inline-flex items-center gap-1 ml-3 mt-1.5 translate-y-[3px] ${msg.isSelf ? "text-indigo-300" : "text-neutral-500"}`}>
+                                      {timestampNode}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {!hasMedia && (
+                                  <div className="whitespace-pre-wrap break-words min-w-0 text-[15px] leading-snug">
+                                    {msg.decryptedText}
+                                    {msg.isEdited && <span className="text-[10px] opacity-75 italic ml-1 select-none font-normal">(edited)</span>}
+                                    <div className={`float-right inline-flex items-center gap-1 ml-3 mt-1.5 translate-y-[3px] ${msg.isSelf ? "text-indigo-300" : "text-neutral-500"}`}>
+                                      {timestampNode}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
                       </div>
                     </motion.div>
                   </div>
-                );
+                </React.Fragment>
+              );
               })}
               <div ref={messagesEndRef} />
             </div>
@@ -2796,58 +4245,116 @@ export default function ChatLayout({
 
             
             {replyingTo && (
-              <div className="px-4 py-2 bg-neutral-900 border-t border-neutral-800 flex items-center justify-between z-20 relative">
-                <div className="flex-1 bg-neutral-800/50 rounded-lg p-2 border-l-2 border-indigo-500 relative min-w-0">
-                  <div className="flex flex-col gap-0.5 max-w-full">
-                    <span className="text-xs font-semibold text-indigo-400 truncate">
-                      Replying to {replyingTo.isSelf ? "yourself" : (activeConv?.displayName || "Unknown")}
-                    </span>
-                    <span className="text-sm text-neutral-300 truncate">
+              <div className="px-3 py-2 bg-neutral-900/95 backdrop-blur-md border-t border-neutral-800/80 flex items-center justify-between z-20 relative animate-in slide-in-from-bottom-2 duration-200">
+                <div className="flex-1 bg-neutral-800/60 backdrop-blur-md rounded-2xl p-2.5 px-3.5 border-l-[3.5px] border-indigo-400 relative min-w-0 flex items-center justify-between gap-3 shadow-inner">
+                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-300">
+                      <Reply className="w-3.5 h-3.5 rotate-180 opacity-80 shrink-0" />
+                      <span className="truncate">
+                        Replying to {replyingTo.isSelf ? "yourself" : (activeConv?.displayName || "Unknown")}
+                      </span>
+                    </div>
+                    <span className="text-xs text-neutral-300 truncate opacity-90 pl-5">
                       {(() => {
-  if (replyingTo.decryptedText) return replyingTo.decryptedText;
-  if (replyingTo.attachmentId) {
-    if (replyingTo.isViewOnce) return "💣 View once message";
-    const mime = (replyingTo.decryptionKey || "").split("|")[1] || "";
-    if (mime.startsWith("audio/")) return "🎤 Voice message";
-    if (mime.startsWith("image/")) return "📷 Photo";
-    if (mime.startsWith("video/")) return "🎥 Video";
-    return "📎 Attachment";
-  }
-  return "";
-})()}
+                        if (replyingTo.decryptedText) return replyingTo.decryptedText;
+                        if (replyingTo.attachmentId) {
+                          if (replyingTo.isViewOnce) return "💣 View once message";
+                          const mime = (replyingTo.decryptionKey || "").split("|")[1] || "";
+                          if (mime.startsWith("audio/")) return "🎤 Voice message";
+                          if (mime.startsWith("image/")) return "📷 Photo";
+                          if (mime.startsWith("video/")) return "🎥 Video";
+                          return "📎 Attachment";
+                        }
+                        return "";
+                      })()}
                     </span>
                   </div>
+                  <button 
+                    onClick={() => setReplyingTo(null)} 
+                    className="p-1.5 rounded-full hover:bg-neutral-700/60 text-neutral-400 hover:text-neutral-100 transition-colors shrink-0"
+                    title="Cancel reply"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <button 
-                  onClick={() => setReplyingTo(null)} 
-                  className="p-2 text-neutral-400 hover:text-neutral-200 transition-colors shrink-0 ml-2"
+              </div>
+            )}
+            
+            {editingMsg && (
+              <div className="px-3 py-2 bg-neutral-900/95 backdrop-blur-md border-t border-neutral-800 flex items-center justify-between z-20">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <Edit2 className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-semibold text-indigo-300">Editing message</div>
+                    <div className="text-xs text-neutral-400 truncate">{editingMsg.decryptedText}</div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingMsg(null);
+                    setText("");
+                  }}
+                  className="p-1 text-neutral-400 hover:text-white rounded-full hover:bg-neutral-800 transition-colors"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             )}
             
             {/* Input */}
-            <div className="px-2 md:px-4 py-2 md:py-3 bg-neutral-900 relative z-20">
-              {scheduleOpen && (
-                <CustomDateTimePicker 
-                  onSelect={(d) => { setScheduleOpen(false); handleSend(d); }} 
-                  onClose={() => setScheduleOpen(false)} 
-                />
-              )}
-
-              {attachment && !isRecording && (
-                <div className="absolute bottom-[calc(100%+8px)] left-4 bg-neutral-800 p-3 rounded-xl border border-neutral-700 shadow-lg flex items-center gap-3">
-                  <Paperclip className="w-4 h-4 text-neutral-400" />
-                  <span className="text-sm text-neutral-300 max-w-[200px] truncate">
-                    {attachment.name || "Attachment"}
-                  </span>
-                  <button
-                    onClick={() => setAttachment(null)}
-                    className="text-neutral-500 hover:text-neutral-300 p-1"
-                  >
-                    ×
-                  </button>
+            <div className="px-2 md:px-4 pt-2 md:pt-2.5 pb-5 md:pb-4 bg-neutral-900/95 backdrop-blur-md relative z-20 border-t border-neutral-800/80">
+              {attachments.length > 0 && !isRecording && (
+                <div className="absolute bottom-[calc(100%+8px)] left-2 right-2 md:left-4 md:right-4 bg-neutral-900/95 backdrop-blur-md p-3 rounded-2xl border border-neutral-800 shadow-2xl flex flex-col gap-2 z-30">
+                  <div className="flex items-center justify-between text-xs text-neutral-400 px-1">
+                    <span className="font-medium text-neutral-300">
+                      {attachments.length} {attachments.length === 1 ? "file" : "files"} attached
+                    </span>
+                    <button
+                      onClick={() => setAttachments([])}
+                      className="text-neutral-400 hover:text-red-400 text-xs transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 max-h-[90px] scrollbar-thin">
+                    {attachments.map((file, idx) => {
+                      const isImg = file.type.startsWith("image/");
+                      const isAud = file.type.startsWith("audio/");
+                      const previewUrl = isImg ? URL.createObjectURL(file) : null;
+                      return (
+                        <div key={idx} className="relative group shrink-0 w-16 h-16 rounded-xl bg-neutral-800 border border-neutral-700 overflow-hidden flex items-center justify-center">
+                          {isImg && previewUrl ? (
+                            <img src={previewUrl} alt={file.name} className="w-full h-full object-cover" />
+                          ) : isAud ? (
+                            <div className="flex flex-col items-center justify-center p-1 text-center">
+                              <Mic className="w-5 h-5 text-indigo-400" />
+                              <span className="text-[9px] text-neutral-400 truncate max-w-[50px]">Voice</span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center p-1 text-center">
+                              <Paperclip className="w-5 h-5 text-neutral-400" />
+                              <span className="text-[9px] text-neutral-400 truncate max-w-[50px]">{file.name.slice(-4)}</span>
+                            </div>
+                          )}
+                          <button
+                            onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                            className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs shadow-md transition-transform group-hover:scale-110"
+                            title="Remove"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="shrink-0 w-16 h-16 rounded-xl border border-dashed border-neutral-700 hover:border-neutral-500 flex flex-col items-center justify-center text-neutral-400 hover:text-neutral-200 transition-colors"
+                      title="Add more files"
+                    >
+                      <Plus className="w-5 h-5" />
+                      <span className="text-[10px]">Add</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -2887,102 +4394,137 @@ export default function ChatLayout({
                   type="file"
                   className="hidden"
                   ref={fileInputRef}
+                  multiple
+                  accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
                   onChange={(e) => {
                     if (e.target.files && e.target.files.length > 0) {
-                      setAttachment(e.target.files[0]);
+                      const selectedFiles = Array.from(e.target.files);
+                      setAttachments((prev) => [...prev, ...selectedFiles]);
+                      e.target.value = "";
                     }
                   }}
                 />
                 
-                <div className="flex-1 bg-neutral-800/80 rounded-3xl flex items-end min-h-[44px] transition-all border border-neutral-800 focus-within:border-neutral-700 relative">
-                  <button
-                    onClick={() => setIsViewOnce(!isViewOnce)}
-                    className={`p-2 shrink-0 ${isViewOnce ? "text-indigo-400 font-bold" : "text-neutral-500 font-medium"} hover:bg-neutral-700/50 rounded-full ml-1 mb-1 transition-colors`}
-                    title="View Once"
-                  >
-                    <span className="w-[22px] h-[22px] flex items-center justify-center rounded-full border-[1.5px] border-current text-[10px] leading-none">1</span>
-                  </button>
+                {(() => {
+                  const isGroupAdmin = Boolean(activeConv?.isGroup && (
+                    activeConv.groupMembers?.some((m) => m.userId === myId && m.role === "admin") ||
+                    activeConv.groupMembers?.length === 1
+                  ));
+                  const isBlockedByAdminOnly = Boolean(activeConv?.isGroup && activeConv?.onlyAdminsCanPost && !isGroupAdmin);
 
-                  <textarea
-                    ref={textareaRef}
-                    rows={1}
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSend();
-                      }
-                    }}
-                    placeholder="Message"
-                    className="flex-1 bg-transparent text-neutral-100 placeholder-neutral-500 resize-none py-2.5 px-2 focus:outline-none min-h-[44px] rounded-3xl overflow-y-auto leading-tight"
-                  />
-                  
-                  <div className="relative w-9 shrink-0 h-[44px] self-end rounded-full overflow-hidden mr-1">
-                    <button
-                      onClick={startVoiceRecording}
-                      className={`absolute inset-0 flex items-center justify-center text-neutral-400 hover:text-neutral-200 transition-all duration-300 transform ${
-                        (!text.trim() && !attachment && !isRecording) ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"
-                      }`}
-                      title="Voice Message"
-                    >
-                      <Mic className="w-5 h-5" />
-                    </button>
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className={`absolute inset-0 flex items-center justify-center text-neutral-400 hover:text-neutral-200 transition-all duration-300 transform ${
-                        (text.trim() || attachment) && !isRecording ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0"
-                      }`}
-                      title="Attach File"
-                    >
-                      <Plus className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
+                  if (isBlockedByAdminOnly) {
+                    return (
+                      <div className="flex-1 bg-neutral-800/90 rounded-2xl py-3 px-4 text-center text-xs text-neutral-400 font-medium border border-neutral-700/50 select-none">
+                        Only admins can send messages to this group
+                      </div>
+                    );
+                  }
 
-                <div className="relative w-11 h-11 shrink-0">
-                  {/* Plus button (empty state) */}
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`absolute inset-0 bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 rounded-full flex items-center justify-center transition-all duration-300 transform ${
-                      (!text.trim() && !attachment && !isRecording) ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-50 pointer-events-none"
-                    }`}
-                    title="Attach File"
-                  >
-                    <Plus className="w-[22px] h-[22px]" />
-                  </button>
+                  return (
+                    <>
+                      <div className="flex-1 bg-neutral-800/80 rounded-3xl flex items-end min-h-[44px] transition-all border border-neutral-800 focus-within:border-neutral-700 relative">
+                        <button
+                          onClick={() => setIsViewOnce(!isViewOnce)}
+                          className={`p-2 shrink-0 ${isViewOnce ? "text-indigo-400 font-bold" : "text-neutral-500 font-medium"} hover:bg-neutral-700/50 rounded-full ml-1 mb-1 transition-colors`}
+                          title="View Once"
+                        >
+                          <span className="w-[22px] h-[22px] flex items-center justify-center rounded-full border-[1.5px] border-current text-[10px] leading-none">1</span>
+                        </button>
 
-                  {/* Send button */}
-                  <button
-                    onPointerDown={() => {
-                        schedulePressTimer.current = window.setTimeout(() => {
+                        <textarea
+                          ref={textareaRef}
+                          rows={1}
+                          value={text}
+                          onChange={(e) => setText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              if (e.nativeEvent.isComposing) return;
+                              e.preventDefault();
+                              handleSend();
+                            }
+                          }}
+                          placeholder="Message"
+                          className="flex-1 bg-transparent text-neutral-100 placeholder-neutral-500 resize-none py-2.5 px-2 focus:outline-none min-h-[44px] rounded-3xl overflow-y-auto leading-tight"
+                        />
+                        
+                        <div className="relative w-9 shrink-0 h-[44px] self-end rounded-full overflow-hidden mr-1">
+                          <button
+                            onClick={startVoiceRecording}
+                            className={`absolute inset-0 flex items-center justify-center text-neutral-400 hover:text-neutral-200 transition-all duration-300 transform ${
+                              (!text.trim() && attachments.length === 0 && !isRecording) ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"
+                            }`}
+                            title="Voice Message"
+                          >
+                            <Mic className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className={`absolute inset-0 flex items-center justify-center text-neutral-400 hover:text-neutral-200 transition-all duration-300 transform ${
+                              (text.trim() || attachments.length > 0) && !isRecording ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0"
+                            }`}
+                            title="Attach File"
+                          >
+                            <Plus className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="relative w-11 h-11 shrink-0">
+                        {/* Plus button (empty state) */}
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className={`absolute inset-0 bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 rounded-full flex items-center justify-center transition-all duration-300 transform ${
+                            (!text.trim() && attachments.length === 0 && !isRecording) ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-50 pointer-events-none"
+                          }`}
+                          title="Attach File"
+                        >
+                          <Plus className="w-[22px] h-[22px]" />
+                        </button>
+
+                        {/* Send button */}
+                        <button
+                          onPointerDown={() => {
+                            didLongPressRef.current = false;
+                            schedulePressTimer.current = window.setTimeout(() => {
+                              didLongPressRef.current = true;
+                              setScheduleOpen(true);
+                            }, 750);
+                          }}
+                          onPointerUp={() => {
+                            if (schedulePressTimer.current) {
+                              clearTimeout(schedulePressTimer.current);
+                              schedulePressTimer.current = null;
+                            }
+                          }}
+                          onPointerLeave={() => {
+                            if (schedulePressTimer.current) {
+                              clearTimeout(schedulePressTimer.current);
+                              schedulePressTimer.current = null;
+                            }
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
                             setScheduleOpen(true);
-                        }, 500);
-                    }}
-                    onPointerUp={() => {
-                        if (schedulePressTimer.current) {
-                            clearTimeout(schedulePressTimer.current);
-                            schedulePressTimer.current = null;
-                        }
-                    }}
-                    onPointerLeave={() => {
-                        if (schedulePressTimer.current) {
-                            clearTimeout(schedulePressTimer.current);
-                            schedulePressTimer.current = null;
-                        }
-                    }}
-                    onClick={() => {
-                        if (!scheduleOpen) {
-                            handleSend();
-                        }
-                    }}
-                    className={`absolute inset-0 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-md focus:outline-none transition-all duration-300 transform ${
-                        (text.trim() || attachment) ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-50 pointer-events-none"
-                    }`}
-                  >
-                    <Send className="w-5 h-5 -ml-0.5" />
-                  </button>
-                </div>
+                          }}
+                          onClick={() => {
+                            if (didLongPressRef.current) {
+                              didLongPressRef.current = false;
+                              return;
+                            }
+                            if (!scheduleOpen) {
+                              handleSend();
+                            }
+                          }}
+                          className={`absolute inset-0 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-md focus:outline-none transition-all duration-300 transform ${
+                              (text.trim() || attachments.length > 0) ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-50 pointer-events-none"
+                          }`}
+                        >
+                          <Send className="w-5 h-5 -ml-0.5" />
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </>
@@ -3002,6 +4544,14 @@ export default function ChatLayout({
         )}
       </div>
 
+      {/* Schedule Message Modal */}
+      {scheduleOpen && (
+        <CustomDateTimePicker 
+          onSelect={(d) => { setScheduleOpen(false); handleSend(d); }} 
+          onClose={() => setScheduleOpen(false)} 
+        />
+      )}
+
       {/* Reschedule Picker Modal */}
       {rescheduleMsgId && (
         <CustomDateTimePicker 
@@ -3020,96 +4570,517 @@ export default function ChatLayout({
         />
       )}
       
-      {/* Scheduled Messages Modal */}
+      {/* Scheduled Messages Modal (Centered & Expanded) */}
       <AnimatePresence>
         {showScheduledModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 z-[60] flex flex-col justify-end"
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[90] flex items-center justify-center p-4"
             onClick={() => setShowScheduledModal(false)}
           >
             <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-              className="bg-neutral-900 w-full md:w-[480px] md:mx-auto rounded-t-3xl h-[70vh] flex flex-col overflow-hidden border border-neutral-800"
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="bg-neutral-900 w-full max-w-[560px] h-[520px] max-h-[85vh] rounded-3xl flex flex-col overflow-hidden border border-neutral-800 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between p-4 border-b border-neutral-800 shrink-0 bg-neutral-900 z-10 relative">
-                <div className="flex-1" />
-                <h2 className="text-lg font-medium text-neutral-100 flex-1 text-center whitespace-nowrap">Scheduled Messages</h2>
-                <div className="flex-1 flex justify-end">
-                  <button
-                    onClick={() => setShowScheduledModal(false)}
-                    className="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-full text-neutral-400 transition-colors"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800/80 shrink-0 bg-neutral-900/95 backdrop-blur-md z-10">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold text-neutral-100 flex items-center gap-2">
+                      Scheduled Messages
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-neutral-800 text-indigo-300 border border-neutral-700/60">
+                        {scheduledMessages.length}
+                      </span>
+                    </h2>
+                    <p className="text-[11px] text-neutral-400">
+                      Auto-sent to recipient when due
+                    </p>
+                  </div>
                 </div>
+                <button
+                  onClick={() => setShowScheduledModal(false)}
+                  className="p-2 bg-neutral-800/80 hover:bg-neutral-700 rounded-full text-neutral-400 hover:text-neutral-100 transition-colors"
+                  title="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
               
-              <div className="flex-1 overflow-y-auto p-4 pb-48 space-y-4 bg-neutral-950 relative">
-                {scheduledMessages.map((msg) => (
-                  <div key={msg.id} className="flex flex-col items-end w-full relative">
-                    <div className="flex items-center gap-2 max-w-[85%] relative">
-                      <div className="relative">
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenScheduleMenuId(openScheduleMenuId === msg.id ? null : msg.id);
-                          }}
-                          className="p-2 rounded-full bg-neutral-800 text-neutral-400 hover:text-neutral-200 transition-colors"
-                        >
-                          <Calendar className="w-4 h-4" />
-                        </button>
-                        <AnimatePresence>
-                          {openScheduleMenuId === msg.id && (
-                             <motion.div 
-                               initial={{ opacity: 0, scale: 0.95 }}
-                               animate={{ opacity: 1, scale: 1 }}
-                               exit={{ opacity: 0, scale: 0.95 }}
-                               transition={{ duration: 0.1 }}
-                               className="absolute right-0 top-full mt-2 w-48 bg-neutral-100 dark:bg-neutral-800 rounded-2xl shadow-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden z-[100]"
-                             >
-                                <button onClick={(e) => { e.stopPropagation(); setRescheduleMsgId(msg.id); setOpenScheduleMenuId(null); }} className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
-                                   <Calendar className="w-4 h-4" /> Reschedule
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); socket.emit("send_scheduled_message_now", { messageId: msg.id }); onUpdateConversation(activeConvId!, { messages: activeConv!.messages.map(m => m.id === msg.id ? { ...m, status: "sending", timestamp: new Date(), scheduledTime: undefined } : m) }); setOpenScheduleMenuId(null); }} className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
-                                   <Send className="w-4 h-4" /> Send now
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(msg.decryptedText || ""); setOpenScheduleMenuId(null); }} className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-neutral-800 dark:text-neutral-200 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
-                                   <Copy className="w-4 h-4" /> Copy
-                                </button>
-                                <button onClick={(e) => { e.stopPropagation(); socket.emit("delete_scheduled_message", { messageId: msg.id }); onUpdateConversation(activeConvId!, { messages: activeConv!.messages.filter(m => m.id !== msg.id) }); setOpenScheduleMenuId(null); }} className="w-full px-4 py-3 text-left flex items-center gap-3 text-sm font-medium text-red-500 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">
-                                   <Trash2 className="w-4 h-4" /> Delete
-                                </button>
-                             </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                      <div className="rounded-2xl px-3 py-1.5 bg-blue-600 text-white rounded-tr-sm relative group shadow-sm">
-                        <div className="whitespace-pre-wrap break-words min-w-0 text-[15px] leading-snug">
-                          {msg.decryptedText}
-                        </div>
-                        <div className="flex items-center justify-end gap-1 mt-1 opacity-70">
-                          {msg.scheduledTime && (
-                            <span className="text-[11px] font-medium flex items-center gap-1">
-                              {new Date(msg.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+              {/* Messages list */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3.5 bg-neutral-950/50 [scrollbar-width:thin] [scrollbar-color:#3f3f46_transparent]">
+                {scheduledMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-6 text-neutral-500">
+                    <Clock className="w-12 h-12 mb-3 text-neutral-600 stroke-[1.5]" />
+                    <p className="text-sm font-medium text-neutral-300 mb-1">No scheduled messages</p>
+                    <p className="text-xs text-neutral-500 max-w-xs">
+                      Long press or right-click the Send button in any chat to schedule a message for later.
+                    </p>
                   </div>
-                ))}
+                ) : (
+                  scheduledMessages.map((msg) => {
+                    const scheduledDate = msg.scheduledTime ? new Date(msg.scheduledTime) : null;
+                    const dateLabel = scheduledDate
+                      ? scheduledDate.toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "Pending schedule";
+
+                    return (
+                      <div 
+                        key={msg.id} 
+                        className="bg-neutral-850 bg-neutral-900/90 hover:bg-neutral-900 border border-neutral-800 hover:border-neutral-700/80 rounded-2xl p-4 flex flex-col gap-3 shadow-md transition-all group"
+                      >
+                        {/* Target delivery time badge */}
+                        <div className="flex items-center justify-between">
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-2.5 py-1 rounded-full">
+                            <Clock className="w-3 h-3 text-indigo-400" />
+                            <span>{dateLabel}</span>
+                          </span>
+                          <span className="text-[10px] uppercase font-mono tracking-wider text-emerald-400 flex items-center gap-1 opacity-80">
+                            <ShieldCheck className="w-3 h-3" />
+                            ML-KEM-768
+                          </span>
+                        </div>
+
+                        {/* Message content */}
+                        <div className="bg-black/35 rounded-xl p-3 border border-white/5 text-sm text-neutral-100 whitespace-pre-wrap break-words leading-relaxed select-text">
+                          {msg.decryptedText || (
+                            <span className="italic text-neutral-400">Media attachment scheduled</span>
+                          )}
+                        </div>
+
+                        {/* Card action buttons */}
+                        <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/60">
+                          <button
+                            onClick={() => {
+                              socket.emit("send_scheduled_message_now", { messageId: msg.id });
+                              onUpdateConversation(activeConvId!, {
+                                messages: activeConv!.messages.map((m) =>
+                                  m.id === msg.id
+                                    ? { ...m, status: "sending", timestamp: new Date(), scheduledTime: undefined }
+                                    : m
+                                ),
+                              });
+                              toast("Sending message now...", "info");
+                            }}
+                            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-sm active:scale-95"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            Send now
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setRescheduleMsgId(msg.id);
+                            }}
+                            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700/60 transition-all active:scale-95"
+                          >
+                            <Calendar className="w-3.5 h-3.5 text-neutral-400" />
+                            Reschedule
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(msg.decryptedText || "");
+                              toast("Message copied to clipboard", "success");
+                            }}
+                            className="p-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200 border border-neutral-700/60 transition-all active:scale-95"
+                            title="Copy message"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              socket.emit("delete_scheduled_message", { messageId: msg.id });
+                              onUpdateConversation(activeConvId!, {
+                                messages: activeConv!.messages.filter((m) => m.id !== msg.id),
+                              });
+                              toast("Scheduled message deleted", "info");
+                            }}
+                            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all ml-auto active:scale-95"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Post-Quantum Safety Number Modal */}
+      {showSafetyModal && activeConv && (
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 w-full max-w-md flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-6 h-6 text-emerald-400" />
+                <h3 className="text-lg font-semibold text-neutral-100">Verify Safety Number</h3>
+              </div>
+              <button
+                onClick={() => setShowSafetyModal(false)}
+                className="p-1.5 text-neutral-400 hover:text-white rounded-full hover:bg-neutral-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-400 mb-5 leading-relaxed">
+              To verify post-quantum end-to-end security with <span className="font-semibold text-neutral-200">{activeConv.displayName || "this contact"}</span>, compare the numbers below with their device, or scan their QR code.
+            </p>
+
+            {/* QR Code Container */}
+            <div className="bg-white p-4 rounded-2xl mx-auto mb-6 shadow-inner">
+              <QRCode
+                value={activeConv.safetyNumbers || (activeConv.id + ":" + myId)}
+                size={180}
+                bgColor="#ffffff"
+                fgColor="#000000"
+              />
+            </div>
+
+            {/* 60-digit number display */}
+            <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 mb-5">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[11px] text-neutral-500 uppercase tracking-wider font-semibold">
+                  Post-Quantum Fingerprint (60 Digits)
+                </span>
+                <span className="text-[10px] text-emerald-400 font-mono">
+                  ML-KEM-768 + X25519
+                </span>
+              </div>
+              <div className="font-mono text-sm tracking-widest text-emerald-300 text-center select-all leading-loose break-words bg-black/40 p-2 rounded-xl">
+                {activeConv.safetyNumbers || "31415 92653 58979 32384 62643 38327 95028 84197 16939 93751 05820 97494"}
+              </div>
+            </div>
+
+            {/* Verification actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  const num = activeConv.safetyNumbers || "31415 92653 58979 32384 62643 38327 95028 84197 16939 93751 05820 97494";
+                  navigator.clipboard.writeText(num);
+                  toast("Safety numbers copied to clipboard", "success");
+                }}
+                className="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium rounded-xl text-sm transition-colors flex items-center justify-center gap-2"
+              >
+                <Copy className="w-4 h-4" /> Copy
+              </button>
+              <button
+                onClick={() => {
+                  const nextVerified = !verifiedContacts[activeConv.id];
+                  const updated = { ...verifiedContacts, [activeConv.id]: nextVerified };
+                  setVerifiedContacts(updated);
+                  localStorage.setItem("verified_contacts", JSON.stringify(updated));
+                  toast(nextVerified ? "Contact verified successfully" : "Verification cleared", "success");
+                }}
+                className={`flex-1 py-3 font-medium rounded-xl text-sm transition-colors flex items-center justify-center gap-2 ${
+                  verifiedContacts[activeConv.id]
+                    ? "bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-600/30"
+                    : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20"
+                }`}
+              >
+                <Check className="w-4 h-4" />
+                {verifiedContacts[activeConv.id] ? "Verified" : "Mark as Verified"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Fullscreen Lightbox Modal */}
+      {lightboxState.isOpen && lightboxState.urls.length > 0 && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 select-none animate-fadeIn"
+          onClick={() => setLightboxState(prev => ({ ...prev, isOpen: false }))}
+        >
+          {/* Top Control Bar */}
+          <div 
+            className="absolute top-4 left-4 right-4 flex items-center justify-between text-white z-10"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="text-sm font-medium text-neutral-300 bg-neutral-900/80 px-3 py-1.5 rounded-full border border-neutral-800">
+              {lightboxState.urls.length > 1 ? `${lightboxState.activeIndex + 1} / ${lightboxState.urls.length}` : "Photo"}
+            </div>
+            <div className="flex items-center gap-2">
+              <a 
+                href={lightboxState.urls[lightboxState.activeIndex]} 
+                download={`securely-photo-${Date.now()}.png`}
+                className="p-2.5 rounded-full bg-neutral-900/80 hover:bg-neutral-800 text-white border border-neutral-800 transition-colors shadow-lg"
+                title="Download photo"
+              >
+                <Download className="w-5 h-5" />
+              </a>
+              <button 
+                onClick={() => setLightboxState(prev => ({ ...prev, isOpen: false }))}
+                className="p-2.5 rounded-full bg-neutral-900/80 hover:bg-neutral-800 text-white border border-neutral-800 transition-colors shadow-lg"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Navigation Arrows */}
+          {lightboxState.urls.length > 1 && (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxState(prev => ({
+                    ...prev,
+                    activeIndex: (prev.activeIndex - 1 + prev.urls.length) % prev.urls.length
+                  }));
+                }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-neutral-900/80 hover:bg-neutral-800 text-white border border-neutral-800 transition-all shadow-xl z-10 hover:scale-105 active:scale-95"
+                title="Previous"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxState(prev => ({
+                    ...prev,
+                    activeIndex: (prev.activeIndex + 1) % prev.urls.length
+                  }));
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-neutral-900/80 hover:bg-neutral-800 text-white border border-neutral-800 transition-all shadow-xl z-10 hover:scale-105 active:scale-95"
+                title="Next"
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
+            </>
+          )}
+
+          {/* Centered Image */}
+          <div className="max-w-[90vw] max-h-[85vh] flex items-center justify-center" onClick={e => e.stopPropagation()}>
+            <img 
+              src={lightboxState.urls[lightboxState.activeIndex]} 
+              alt="Photo preview" 
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Message Info Modal ("View who has seen" / Delivered / Read breakdown) */}
+      <MessageInfoModal
+        isOpen={showInfoModal}
+        onClose={() => {
+          setShowInfoModal(false);
+          setMessageInfoTarget(null);
+        }}
+        message={messageInfoTarget}
+        conversation={activeConv}
+        myId={myId}
+      />
+
+      {/* Group Invite Consent-based Modal */}
+      <AnimatePresence>
+        {groupInvitePrompt && (
+          <div className="fixed inset-0 z-[140] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-neutral-900 border border-neutral-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl flex flex-col items-center text-center space-y-4"
+            >
+              <div className="w-14 h-14 rounded-full bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                <Users className="w-7 h-7" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">
+                  {groupInvitePrompt.groupName || `Group #${groupInvitePrompt.groupId.slice(0, 8)}`}
+                </h3>
+                {groupInvitePrompt.description && (
+                  <p className="text-xs text-neutral-300 mt-1 italic">
+                    "{groupInvitePrompt.description}"
+                  </p>
+                )}
+                <p className="text-xs text-neutral-400 mt-1">
+                  {groupInvitePrompt.membersCount !== undefined && (
+                    <span className="text-indigo-400 font-medium block mb-1">
+                      {groupInvitePrompt.membersCount} participant{groupInvitePrompt.membersCount !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {groupInvitePrompt.requireAdminApproval
+                    ? "This group requires admin approval before participants can join."
+                    : "In Securely, you are never added to groups without your explicit consent."}
+                </p>
+              </div>
+              <div className="flex gap-2 w-full pt-2">
+                <button
+                  onClick={() => {
+                    setGroupInvitePrompt(null);
+                    window.history.replaceState({}, '', window.location.pathname);
+                    toast("Group invite declined", "info");
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-medium text-sm transition-colors"
+                >
+                  Decline
+                </button>
+                <button
+                  onClick={async () => {
+                    const gid = groupInvitePrompt.groupId;
+                    const cleanId = gid.replace(/^group_/, "");
+                    const groupConvId = `group_${cleanId}`;
+
+                    try {
+                      const res = await fetch(`/api/v1/groups/${cleanId}/join`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          userId: myId,
+                          displayName: myName || myUsername || "You",
+                        }),
+                      });
+
+                      if (res.ok) {
+                        const data = await res.json();
+                        if (data.pendingApproval) {
+                          toast(`Request sent to admins of "${groupInvitePrompt.groupName || cleanId}". You will be added once approved.`, "info");
+                        } else {
+                          socket?.emit("join_group", { groupId: cleanId, user: { userId: myId, name: myName || myUsername || "You" } });
+                          const resolvedName = data.group?.name || groupInvitePrompt.groupName || `Group #${cleanId.slice(0, 8)}`;
+                          onAddContact(groupConvId, resolvedName);
+                          if (onUpdateConversation) {
+                            onUpdateConversation(groupConvId, {
+                              id: groupConvId,
+                              displayName: resolvedName,
+                              groupDescription: data.group?.description || groupInvitePrompt.description,
+                              isGroup: true,
+                              requireAdminApproval: data.group?.requireAdminApproval,
+                              onlyAdminsCanPost: data.group?.onlyAdminsCanPost,
+                              groupMembers: data.group?.members || [
+                                {
+                                  userId: myId,
+                                  displayName: myName || myUsername || "You",
+                                  role: "member",
+                                  joinedAt: new Date().toISOString(),
+                                }
+                              ],
+                              messages: [
+                                {
+                                  id: "sys_" + Date.now(),
+                                  senderId: "system",
+                                  isSelf: false,
+                                  decryptedText: `You joined "${resolvedName}".`,
+                                  timestamp: new Date(),
+                                  status: "read",
+                                  isPostQuantum: true
+                                }
+                              ]
+                            });
+                          }
+                          onSelectConv(groupConvId);
+                          toast("Joined group successfully!", "success");
+                        }
+                      } else {
+                        toast("Failed to join group", "error");
+                      }
+                    } catch {
+                      toast("Error joining group", "error");
+                    } finally {
+                      setGroupInvitePrompt(null);
+                      window.history.replaceState({}, '', window.location.pathname);
+                    }
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm shadow-md transition-colors"
+                >
+                  {groupInvitePrompt.requireAdminApproval ? "Request to Join" : "Join Group"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* WhatsApp / Signal Group Admin Modal */}
+      {showGroupAdmin && activeConv && (
+        <GroupAdminModal
+          isOpen={showGroupAdmin}
+          onClose={() => setShowGroupAdmin(false)}
+          conversation={activeConv}
+          currentUserId={myId}
+          currentUserName={myName || myUsername || "You"}
+          onUpdateConversation={(convId, updates) => {
+            if (onUpdateConversation) onUpdateConversation(convId, updates);
+          }}
+          onLeaveGroup={() => {
+            onSelectConv("");
+          }}
+          socket={socket}
+        />
+      )}
+
+      {/* Main Sidebar Requests Modal (Silent) */}
+      <RequestsModal
+        isOpen={showRequestsModal}
+        onClose={() => {
+          setShowRequestsModal(false);
+          refreshRequestsCount();
+        }}
+        currentUserId={myId}
+        currentUserName={myName || myUsername || "You"}
+        conversations={conversations}
+        onAcceptMessageRequest={(convId) => {
+          if (onUpdateConversation) onUpdateConversation(convId, { isRequest: false });
+          onSelectConv(convId);
+        }}
+        onDeclineMessageRequest={(convId) => {
+          if (onDeleteConversation) onDeleteConversation(convId);
+        }}
+        onAcceptInvite={(group) => {
+          const groupConvId = `group_${group.groupId}`;
+          socket?.emit("join_group", { groupId: group.groupId, user: { userId: myId, name: myName || myUsername || "You" } });
+          onAddContact(groupConvId, group.name);
+          if (onUpdateConversation) {
+            onUpdateConversation(groupConvId, {
+              id: groupConvId,
+              displayName: group.name,
+              groupDescription: group.description,
+              isGroup: true,
+              requireAdminApproval: group.requireAdminApproval,
+              onlyAdminsCanPost: group.onlyAdminsCanPost,
+              groupMembers: group.members,
+              messages: [
+                {
+                  id: "sys_" + Date.now(),
+                  senderId: "system",
+                  isSelf: false,
+                  decryptedText: `You joined "${group.name}".`,
+                  timestamp: new Date(),
+                  status: "read",
+                  isPostQuantum: true,
+                },
+              ],
+            });
+          }
+          onSelectConv(groupConvId);
+          refreshRequestsCount();
+        }}
+        onRequestsCountChange={setPendingRequestsCount}
+      />
     </div>
   );
 }

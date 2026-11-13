@@ -98,6 +98,14 @@ export function CallScreen({
     }
   }, [localStream, isVideoOff]);
 
+  useEffect(() => {
+    return () => {
+      if (localVideoRef.current) localVideoRef.current.srcObject = null;
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    };
+  }, []);
+
   const showVideo = isVideo && callState === "connected";
 
   useEffect(() => {
